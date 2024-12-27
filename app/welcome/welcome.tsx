@@ -1,89 +1,401 @@
-import logoDark from "./logo-dark.svg";
-import logoLight from "./logo-light.svg";
+import { useRef, useEffect } from "react";
+import * as THREE from "three";
 
 export function Welcome() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const HORIZON_LIGHT_WIDTH = 100;
+  const HORIZON_LIGHT_HEIGHT = 2; // Reduced height for thinner line
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 2, 0.1, 1000);
+    camera.position.set(0, 10, 30);
+    camera.lookAt(0, 0, 0);
+    scene.add(camera);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+
+    const pointLight = new THREE.PointLight(0xffffff, 1, 200);
+    pointLight.position.set(20, 50, 20);
+    scene.add(pointLight);
+
+    const GRID_SIZE = 50;
+    const STEP = 1;
+    const positions: number[] = [];
+    const lineIndices: number[] = [];
+    let currentIndex = 0;
+
+    for (let x = -GRID_SIZE; x <= GRID_SIZE; x += STEP) {
+      positions.push(x, 0, -GRID_SIZE);
+      positions.push(x, 0, GRID_SIZE);
+      lineIndices.push(currentIndex, currentIndex + 1);
+      currentIndex += 2;
+    }
+    for (let z = -GRID_SIZE; z <= GRID_SIZE; z += STEP) {
+      positions.push(-GRID_SIZE, 0, z);
+      positions.push(GRID_SIZE, 0, z);
+      lineIndices.push(currentIndex, currentIndex + 1);
+      currentIndex += 2;
+    }
+
+    const gridGeometry = new THREE.BufferGeometry();
+    gridGeometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(new Float32Array(positions), 3)
+    );
+
+    const lineIDArray = new Float32Array(positions.length / 3);
+    for (let i = 0; i < lineIDArray.length; i++) {
+      lineIDArray[i] = Math.floor(i / 2);
+    }
+    gridGeometry.setAttribute(
+      "lineID",
+      new THREE.Float32BufferAttribute(lineIDArray, 1)
+    );
+
+    const MAX_PULSES = 3;
+    const uniforms = {
+      u_time: { value: 0 },
+      u_gridSize: { value: GRID_SIZE },
+      u_activeLineStarts: {
+        value: Array(MAX_PULSES).fill(new THREE.Vector3()),
+      },
+      u_activeLineEnds: { value: Array(MAX_PULSES).fill(new THREE.Vector3()) },
+      u_pulsePositions: { value: new Float32Array(MAX_PULSES).fill(-1) },
+      u_activeLineIDs: { value: new Float32Array(MAX_PULSES).fill(-1) },
+      u_activePulseCount: { value: 0 },
+    };
+
+    const vertexShader = /* glsl */ `
+      varying vec3 vPosition;
+      attribute float lineID;
+      varying float vLineID;
+      
+      void main() {
+        vPosition = position;
+        vLineID = lineID;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const fragmentShader = /* glsl */ `
+      precision highp float;
+      varying vec3 vPosition;
+      varying float vLineID;
+      uniform float u_gridSize;
+      uniform float u_time;
+      uniform vec3 u_activeLineStarts[${MAX_PULSES}];
+      uniform vec3 u_activeLineEnds[${MAX_PULSES}];
+      uniform float u_pulsePositions[${MAX_PULSES}];
+      uniform float u_activeLineIDs[${MAX_PULSES}];
+      uniform int u_activePulseCount;
+
+      vec3 colorA = vec3(1.0, 0.0, 1.0);    // magenta
+      vec3 colorB = vec3(0.0, 0.7, 1.0);    // lighter blue
+      vec3 pulseColor = vec3(1.0, 1.0, 1.0); // white pulse
+
+      void main() {
+        // Base grid color
+        float dist = length(vPosition.xz) / u_gridSize;
+        float t = pow(dist, 0.75);
+        t = clamp(t, 0.0, 1.0);
+        vec3 baseColor = mix(colorA, colorB, t);
+        
+        // Calculate combined pulse effect from all active pulses
+        float totalPulse = 0.0;
+        
+        for(int i = 0; i < ${MAX_PULSES}; i++) {
+          if (i >= u_activePulseCount) break;
+          
+          if (vLineID == u_activeLineIDs[i] && u_pulsePositions[i] >= 0.0) {
+            vec3 lineDir = normalize(u_activeLineEnds[i] - u_activeLineStarts[i]);
+            vec3 posOnLine = vPosition - u_activeLineStarts[i];
+            float distAlongLine = dot(posOnLine, lineDir);
+            float totalLineLength = length(u_activeLineEnds[i] - u_activeLineStarts[i]);
+            
+            float pulseWidth = 5.0;
+            float pulseDist = abs(distAlongLine - (u_pulsePositions[i] * totalLineLength));
+            totalPulse = max(totalPulse, smoothstep(pulseWidth, 0.0, pulseDist));
+          }
+        }
+        
+        // Combine colors
+        vec3 finalColor = mix(baseColor, pulseColor, totalPulse * 0.8);
+        
+        // Add slight fade out at the horizon
+        float alpha = 1.0 - (dist * 0.5);
+        alpha = clamp(alpha, 0.3, 1.0);
+        
+        gl_FragColor = vec4(finalColor, alpha);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+    });
+
+    // First create and add the grid
+    const lineSegments = new THREE.LineSegments(gridGeometry, material);
+    lineSegments.rotation.x = (-Math.PI / 2) * 0.1;
+    scene.add(lineSegments);
+
+    const horizonGeometry = new THREE.PlaneGeometry(
+      HORIZON_LIGHT_WIDTH,
+      HORIZON_LIGHT_HEIGHT
+    );
+
+    const horizonVertexShader = /* glsl */ `
+  varying vec2 vUv;
+  
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+    const horizonFragmentShader = /* glsl */ `
+  varying vec2 vUv;
+  uniform float u_time;
+  
+  void main() {
+    // Enhanced colors with higher intensity
+    vec3 neonBlue = vec3(0.2, 0.8, 1.0) * 1.8;    // bright cyan/blue
+    // Define magenta with higher intensity and purer values
+    vec3 neonMagenta = vec3(1.0, 0.0, 1.0) * 2.0; // pure magenta with higher intensity
+    
+    // Use only x position for color selection
+    float x = vUv.x;
+    vec3 baseColor;
+    
+    // Test with pure colors and sharp transitions
+    if (x > 0.4 && x < 0.6) {
+        baseColor = neonMagenta;
+    } 
+    // Left transition
+    else if (x >= 0.3 && x <= 0.4) {
+        float t = (x - 0.3) / 0.1;
+        baseColor = mix(neonBlue, neonMagenta, t);
+    }
+    // Right transition
+    else if (x >= 0.6 && x <= 0.7) {
+        float t = (x - 0.6) / 0.1;
+        baseColor = mix(neonMagenta, neonBlue, t);
+    }
+    // Edges (blue)
+    else {
+        baseColor = neonBlue;
+    }
+    
+    // Create a sharper, more intense core line
+    float coreWidth = 0.02;
+    float coreLine = smoothstep(0.5 - coreWidth, 0.5, vUv.y) - 
+                    smoothstep(0.5, 0.5 + coreWidth, vUv.y);
+    
+    // Create a wider glow effect
+    float glowWidth = 0.3;
+    float glow = pow(1.0 - abs(vUv.y - 0.5) * 2.0, 3.0) * 0.8;
+    
+    // Animated pulse effect
+    float mainPulse = sin(u_time * 1.5) * 0.15 + 0.85;
+    float ripplePulse = sin(u_time * 3.0 + vUv.x * 6.28) * 0.1 + 0.9;
+    
+    // Combine core line and glow
+    float brightness = coreLine * 2.0 + glow;
+    brightness *= mainPulse * ripplePulse;
+    
+    // Add subtle horizontal energy lines
+    float energyLines = pow(sin(vUv.x * 20.0 + u_time), 8.0) * 0.1 * glow;
+    brightness += energyLines;
+    
+    // Final color combination
+    vec3 finalColor = baseColor * brightness * 2.0;
+    
+    // Add white hot core
+    float whiteness = coreLine * mainPulse;
+    finalColor = mix(finalColor, vec3(1.5), whiteness * 0.7);
+    
+    // Smooth alpha falloff
+    float alpha = brightness;
+    alpha = smoothstep(0.0, 0.2, alpha) * 0.9;
+    
+    gl_FragColor = vec4(finalColor, alpha);
+  }
+`;
+
+    const horizonMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        u_time: { value: 0 },
+      },
+      vertexShader: horizonVertexShader,
+      fragmentShader: horizonFragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false, // Ensures glow is always visible
+    });
+
+    const calculateHorizonPosition = () => {
+      // Convert grid rotation to radians for calculation
+      const gridRotation = lineSegments.rotation.x;
+
+      // Calculate the intersection point of the camera's view with the grid
+      const cameraHeight = camera.position.y;
+      const cameraZ = camera.position.z;
+      const gridZ = -GRID_SIZE;
+
+      // Calculate the apparent horizon based on camera perspective and grid rotation
+      const t = Math.abs(gridZ / (cameraZ - gridZ));
+      const horizonY = -cameraHeight * t * Math.sin(gridRotation);
+
+      return {
+        y: horizonY,
+        z: gridZ + 5, // Small offset to ensure the light is just in front of the grid's edge
+      };
+    };
+    // Create and position the horizon light
+    const horizonLight = new THREE.Mesh(horizonGeometry, horizonMaterial);
+    const horizonPos = calculateHorizonPosition();
+
+    horizonLight.position.set(0, horizonPos.y - 8, horizonPos.z);
+    horizonLight.rotation.x = lineSegments.rotation.x; // Match grid rotation
+    scene.add(horizonLight);
+
+    // Debug logging
+    console.log("Grid rotation:", lineSegments.rotation.x);
+    console.log("Grid position:", lineSegments.position);
+    console.log("Horizon light position:", horizonLight.position);
+    console.log("Horizon light rotation:", horizonLight.rotation);
+
+    // Pulse management
+    class Pulse {
+      lineIdx: number;
+      progress: number;
+      active: boolean;
+
+      constructor(lineIdx: number) {
+        this.lineIdx = lineIdx;
+        this.progress = 0;
+        this.active = true;
+      }
+    }
+
+    const pulses: Pulse[] = [];
+    const PULSE_SPEED = 0.008;
+
+    const startNewPulse = () => {
+      const activePulses = pulses.filter((p) => p.active && p.progress < 1.0);
+
+      if (activePulses.length < MAX_PULSES) {
+        let newLine: number;
+        do {
+          newLine = Math.floor(Math.random() * (lineIndices.length / 2));
+        } while (activePulses.some((p) => p.lineIdx === newLine));
+
+        activePulses.push(new Pulse(newLine));
+      }
+
+      uniforms.u_activePulseCount.value = activePulses.length;
+
+      for (let i = 0; i < MAX_PULSES; i++) {
+        if (i < activePulses.length) {
+          const pulse = activePulses[i];
+          const idx1 = lineIndices[pulse.lineIdx * 2] * 3;
+          const idx2 = lineIndices[pulse.lineIdx * 2 + 1] * 3;
+
+          uniforms.u_activeLineStarts.value[i] = new THREE.Vector3(
+            positions[idx1],
+            positions[idx1 + 1],
+            positions[idx1 + 2]
+          );
+          uniforms.u_activeLineEnds.value[i] = new THREE.Vector3(
+            positions[idx2],
+            positions[idx2 + 1],
+            positions[idx2 + 2]
+          );
+          uniforms.u_activeLineIDs.value[i] = pulse.lineIdx;
+          uniforms.u_pulsePositions.value[i] = pulse.progress;
+        } else {
+          uniforms.u_pulsePositions.value[i] = -1;
+          uniforms.u_activeLineIDs.value[i] = -1;
+        }
+      }
+
+      pulses.splice(0, pulses.length, ...activePulses);
+    };
+
+    const scheduleNextPulse = () => {
+      const delay = 200 + Math.random() * 800;
+      setTimeout(() => {
+        startNewPulse();
+        scheduleNextPulse();
+      }, delay);
+    };
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+
+      // Update existing pulse positions
+      if (pulses.length > 0) {
+        pulses.forEach((pulse, i) => {
+          if (pulse.active && pulse.progress < 1.0) {
+            pulse.progress += PULSE_SPEED;
+            uniforms.u_pulsePositions.value[i] = pulse.progress;
+          }
+        });
+
+        startNewPulse(); // This will clean up completed pulses
+      }
+
+      // Update both time uniforms
+      uniforms.u_time.value += 0.01;
+      horizonMaterial.uniforms.u_time.value += 0.01;
+
+      renderer.render(scene, camera);
+    };
+
+    scheduleNextPulse();
+    animate();
+
+    const handleResize = () => {
+      if (!canvas) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      renderer.setSize(width, height, false);
+
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+
+    const ro = new ResizeObserver(handleResize);
+    ro.observe(canvas);
+    handleResize();
+
+    return () => {
+      ro.disconnect();
+      gridGeometry.dispose();
+      material.dispose();
+      horizonGeometry.dispose();
+      horizonMaterial.dispose();
+      renderer.dispose();
+    };
+  }, []);
+
   return (
-    <main className="flex items-center justify-center pt-16 pb-4">
-      <div className="flex-1 flex flex-col items-center gap-16 min-h-0">
-        <header className="flex flex-col items-center gap-9">
-          <div className="w-[500px] max-w-[100vw] p-4">
-            <img
-              src={logoLight}
-              alt="React Router"
-              className="block w-full dark:hidden"
-            />
-            <img
-              src={logoDark}
-              alt="React Router"
-              className="hidden w-full dark:block"
-            />
-          </div>
-        </header>
-        <div className="max-w-[300px] w-full space-y-6 px-4">
-          <nav className="rounded-3xl border border-gray-200 p-6 dark:border-gray-700 space-y-4">
-            <p className="leading-6 text-gray-700 dark:text-gray-200 text-center">
-              What&apos;s next?
-            </p>
-            <ul>
-              {resources.map(({ href, text, icon }) => (
-                <li key={href}>
-                  <a
-                    className="group flex items-center gap-3 self-stretch p-3 leading-normal text-blue-700 hover:underline dark:text-blue-500"
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {icon}
-                    {text}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </div>
-      </div>
-    </main>
+    <div style={{ width: "100vw", height: "100vh" }}>
+      <canvas
+        ref={canvasRef}
+        style={{ display: "block", width: "100%", height: "100%" }}
+      />
+    </div>
   );
 }
-
-const resources = [
-  {
-    href: "https://reactrouter.com/docs",
-    text: "React Router Docs",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M9.99981 10.0751V9.99992M17.4688 17.4688C15.889 19.0485 11.2645 16.9853 7.13958 12.8604C3.01467 8.73546 0.951405 4.11091 2.53116 2.53116C4.11091 0.951405 8.73546 3.01467 12.8604 7.13958C16.9853 11.2645 19.0485 15.889 17.4688 17.4688ZM2.53132 17.4688C0.951566 15.8891 3.01483 11.2645 7.13974 7.13963C11.2647 3.01471 15.8892 0.951453 17.469 2.53121C19.0487 4.11096 16.9854 8.73551 12.8605 12.8604C8.73562 16.9853 4.11107 19.0486 2.53132 17.4688Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://rmx.as/discord",
-    text: "Join Discord",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 24 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M15.0686 1.25995L14.5477 1.17423L14.2913 1.63578C14.1754 1.84439 14.0545 2.08275 13.9422 2.31963C12.6461 2.16488 11.3406 2.16505 10.0445 2.32014C9.92822 2.08178 9.80478 1.84975 9.67412 1.62413L9.41449 1.17584L8.90333 1.25995C7.33547 1.51794 5.80717 1.99419 4.37748 2.66939L4.19 2.75793L4.07461 2.93019C1.23864 7.16437 0.46302 11.3053 0.838165 15.3924L0.868838 15.7266L1.13844 15.9264C2.81818 17.1714 4.68053 18.1233 6.68582 18.719L7.18892 18.8684L7.50166 18.4469C7.96179 17.8268 8.36504 17.1824 8.709 16.4944L8.71099 16.4904C10.8645 17.0471 13.128 17.0485 15.2821 16.4947C15.6261 17.1826 16.0293 17.8269 16.4892 18.4469L16.805 18.8725L17.3116 18.717C19.3056 18.105 21.1876 17.1751 22.8559 15.9238L23.1224 15.724L23.1528 15.3923C23.5873 10.6524 22.3579 6.53306 19.8947 2.90714L19.7759 2.73227L19.5833 2.64518C18.1437 1.99439 16.6386 1.51826 15.0686 1.25995ZM16.6074 10.7755L16.6074 10.7756C16.5934 11.6409 16.0212 12.1444 15.4783 12.1444C14.9297 12.1444 14.3493 11.6173 14.3493 10.7877C14.3493 9.94885 14.9378 9.41192 15.4783 9.41192C16.0471 9.41192 16.6209 9.93851 16.6074 10.7755ZM8.49373 12.1444C7.94513 12.1444 7.36471 11.6173 7.36471 10.7877C7.36471 9.94885 7.95323 9.41192 8.49373 9.41192C9.06038 9.41192 9.63892 9.93712 9.6417 10.7815C9.62517 11.6239 9.05462 12.1444 8.49373 12.1444Z"
-          strokeWidth="1.5"
-        />
-      </svg>
-    ),
-  },
-];
