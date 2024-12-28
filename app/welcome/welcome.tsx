@@ -8,8 +8,76 @@ const HORIZON_LIGHT_WIDTH = 100;
 const HORIZON_LIGHT_HEIGHT = 2;
 const GRID_SIZE = 50;
 const STEP = 1;
+const PULSE_SPEED = 50;
+const PULSE_CHANGE_DIRECTION_PROBABILITY = 0.03;
+
+// Pulse Direction Enum
+const Direction = {
+  UP: "UP",
+  DOWN: "DOWN",
+  LEFT: "LEFT",
+  RIGHT: "RIGHT",
+};
+
+// Pulse State Interface
+interface PulseState {
+  position: THREE.Vector2;
+  direction: (typeof Direction)[keyof typeof Direction];
+  isActive: boolean;
+}
+
+// Grid Intersection Interface
+interface GridIntersection {
+  position: THREE.Vector2;
+  neighbors: THREE.Vector2[];
+}
 
 // Utility Functions
+
+const createGridIntersections = () => {
+  const intersections = new Map<string, GridIntersection>();
+
+  for (let x = -GRID_SIZE; x <= GRID_SIZE; x += STEP) {
+    for (let z = -GRID_SIZE; z <= GRID_SIZE; z += STEP) {
+      const position = new THREE.Vector2(x, z);
+      const key = `${x},${z}`;
+
+      const neighbors: THREE.Vector2[] = [];
+      if (x > -GRID_SIZE) neighbors.push(new THREE.Vector2(x - STEP, z));
+      if (x < GRID_SIZE) neighbors.push(new THREE.Vector2(x + STEP, z));
+      if (z > -GRID_SIZE) neighbors.push(new THREE.Vector2(x, z - STEP));
+      if (z < GRID_SIZE) neighbors.push(new THREE.Vector2(x, z + STEP));
+
+      intersections.set(key, { position, neighbors });
+    }
+  }
+  return intersections;
+};
+
+const initializePulseState = (): PulseState => {
+  const isHorizontal = Math.random() < 0.5;
+  const pos = Math.floor(Math.random() * (GRID_SIZE * 2)) - GRID_SIZE;
+
+  let position: THREE.Vector2;
+  let direction: keyof typeof Direction;
+
+  if (isHorizontal) {
+    position = new THREE.Vector2(-GRID_SIZE, pos);
+    direction = "RIGHT";
+  } else {
+    position = new THREE.Vector2(pos, GRID_SIZE); // CHANGED: Start from top
+    direction = "DOWN"; // CHANGED: Move down instead of up
+  }
+
+  console.log("Initialized new pulse:", position, direction);
+
+  return {
+    position,
+    direction,
+    isActive: true,
+  };
+};
+
 const createGridGeometry = () => {
   const positions = [];
   const lineIndices = [];
@@ -100,14 +168,25 @@ export function Welcome() {
         u_time: { value: 0 },
         u_gridSize: { value: GRID_SIZE },
         u_gridSpeed: { value: 0.05 },
+        u_pulsePosition: { value: new THREE.Vector2() },
+        u_pulseActive: { value: 1.0 },
+        u_pulseIntensity: { value: 1.0 },
       },
       vertexShader: `
-  varying vec3 vPosition;
-  void main() {
-    vPosition = position;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`,
+varying vec3 vPosition;
+varying vec2 vUv;
+
+void main() {
+  // Store the original position
+  vPosition = position;
+  
+  // Create UV coordinates that account for the grid rotation
+  // This will help us track position in the fragment shader
+  vUv = vec2(position.x, position.z);
+  
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+      `,
       fragmentShader: gridShader,
       transparent: true,
     });
@@ -120,10 +199,152 @@ export function Welcome() {
       createHorizonLight(camera, grid.rotation.x);
     scene.add(horizonLight);
 
+    // Initialize pulse system
+    let pulseState = initializePulseState();
+    const gridIntersections = createGridIntersections();
+    let lastUpdateTime = performance.now();
+
+    const getValidNextDirections = (
+      currentPos: THREE.Vector2,
+      currentDir: keyof typeof Direction
+    ): (keyof typeof Direction)[] => {
+      // Fix key construction to match our coordinate system
+      const key = `${Math.round(currentPos.x)},${Math.round(currentPos.y)}`;
+
+      const intersection = gridIntersections.get(key);
+      if (!intersection) {
+        return [];
+      }
+
+      const oppositeDir = {
+        UP: "DOWN",
+        DOWN: "UP",
+        LEFT: "RIGHT",
+        RIGHT: "LEFT",
+      } as const;
+
+      const validDirs = (
+        Object.keys(Direction) as (keyof typeof Direction)[]
+      ).filter(
+        (dir) =>
+          dir !== oppositeDir[currentDir] &&
+          intersection.neighbors.some((neighbor) => {
+            const valid = (() => {
+              switch (dir) {
+                case "UP":
+                  return neighbor.y > currentPos.y;
+                case "DOWN":
+                  return neighbor.y < currentPos.y;
+                case "LEFT":
+                  return neighbor.x < currentPos.x;
+                case "RIGHT":
+                  return neighbor.x > currentPos.x;
+                default:
+                  return false;
+              }
+            })();
+            return valid;
+          })
+      );
+
+      return validDirs;
+    };
+
+    const updatePulsePosition = (deltaTime: number) => {
+      if (!pulseState.isActive) return;
+
+      const movement = deltaTime * PULSE_SPEED;
+      const newPosition = pulseState.position.clone();
+
+      // Store original position for logging
+      const origX = newPosition.x;
+      const origY = newPosition.y;
+
+      switch (pulseState.direction) {
+        case "UP":
+          newPosition.y -= movement; // CHANGED: Inverted Y direction
+          break;
+        case "DOWN":
+          newPosition.y += movement; // CHANGED: Inverted Y direction
+          break;
+        case "LEFT":
+          newPosition.x -= movement;
+          break;
+        case "RIGHT":
+          newPosition.x += movement;
+          break;
+      }
+
+      // Check if we've reached an intersection
+      const roundedX = Math.round(newPosition.x);
+      const roundedY = Math.round(newPosition.y);
+
+      // Using a smaller threshold for intersection detection
+      if (
+        Math.abs(roundedX - newPosition.x) < 0.05 &&
+        Math.abs(roundedY - newPosition.y) < 0.05
+      ) {
+        // We're at an intersection, snap to grid first
+        newPosition.set(roundedX, roundedY);
+
+        const validDirections = getValidNextDirections(
+          new THREE.Vector2(roundedX, roundedY),
+          pulseState.direction as keyof typeof Direction
+        );
+
+        if (
+          validDirections.length > 0 &&
+          Math.random() < PULSE_CHANGE_DIRECTION_PROBABILITY
+        ) {
+          const randomIndex = Math.floor(
+            Math.random() * validDirections.length
+          );
+          pulseState.direction = validDirections[randomIndex];
+        }
+      }
+
+      // Check if we've reached the edge of the grid
+      if (
+        Math.abs(newPosition.x) > GRID_SIZE ||
+        Math.abs(newPosition.y) > GRID_SIZE
+      ) {
+        pulseState = initializePulseState();
+        return;
+      }
+
+      // Log movement
+      console.log(
+        `Movement: ${origX},${origY} -> ${newPosition.x},${newPosition.y} (${pulseState.direction})`
+      );
+
+      pulseState.position = newPosition;
+    };
+
     const animate = () => {
+      const currentTime = performance.now();
+      const deltaTime = (currentTime - lastUpdateTime) / 1000;
+      lastUpdateTime = currentTime;
+
       requestAnimationFrame(animate);
+
       gridMaterial.uniforms.u_time.value += 0.01;
       horizonMaterial.uniforms.u_time.value += 0.01;
+
+      updatePulsePosition(deltaTime);
+
+      // Transform coordinates for shader
+      const rotationX = (-Math.PI / 2) * 0.1;
+      const pos = pulseState.position;
+
+      // Invert Y coordinate for proper grid alignment
+      gridMaterial.uniforms.u_pulsePosition.value.set(
+        pos.x,
+        -pos.y // CHANGED: Invert Y coordinate
+      );
+      gridMaterial.uniforms.u_pulseActive.value = pulseState.isActive
+        ? 1.0
+        : 0.0;
+
       renderer.render(scene, camera);
     };
 
