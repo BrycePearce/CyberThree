@@ -4,7 +4,6 @@ varying vec3 vPosition;
 varying float vLineID;
 
 uniform float u_gridSize;
-uniform float u_time;
 uniform vec3 u_activeLineStarts[MAX_PULSES];
 uniform vec3 u_activeLineEnds[MAX_PULSES];
 uniform float u_pulsePositions[MAX_PULSES];
