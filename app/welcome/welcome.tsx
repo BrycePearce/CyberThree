@@ -8,15 +8,6 @@ const HORIZON_LIGHT_WIDTH = 100;
 const HORIZON_LIGHT_HEIGHT = 2;
 const GRID_SIZE = 50;
 const STEP = 1;
-const MAX_PULSES = 3;
-const PULSE_SPEED = 0.008;
-
-// Define Pulse type
-type Pulse = {
-  lineIdx: number;
-  progress: number;
-  active: boolean;
-};
 
 // Utility Functions
 const createGridGeometry = () => {
@@ -39,15 +30,6 @@ const createGridGeometry = () => {
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(new Float32Array(positions), 3)
-  );
-
-  const lineIDArray = new Float32Array(positions.length / 3);
-  for (let i = 0; i < lineIDArray.length; i++) {
-    lineIDArray[i] = Math.floor(i / 2);
-  }
-  geometry.setAttribute(
-    "lineID",
-    new THREE.Float32BufferAttribute(lineIDArray, 1)
   );
 
   return { geometry, lineIndices, positions };
@@ -112,36 +94,21 @@ export function Welcome() {
     pointLight.position.set(20, 50, 20);
     scene.add(ambientLight, pointLight);
 
-    const {
-      geometry: gridGeometry,
-      lineIndices,
-      positions,
-    } = createGridGeometry();
+    const { geometry: gridGeometry } = createGridGeometry();
     const gridMaterial = new THREE.ShaderMaterial({
       uniforms: {
         u_time: { value: 0 },
         u_gridSize: { value: GRID_SIZE },
-        u_activeLineStarts: {
-          value: Array(MAX_PULSES).fill(new THREE.Vector3()),
-        },
-        u_activeLineEnds: {
-          value: Array(MAX_PULSES).fill(new THREE.Vector3()),
-        },
-        u_pulsePositions: { value: new Float32Array(MAX_PULSES).fill(-1) },
-        u_activeLineIDs: { value: new Float32Array(MAX_PULSES).fill(-1) },
-        u_activePulseCount: { value: 0 },
+        u_gridSpeed: { value: 0.05 },
       },
       vertexShader: `
-        varying vec3 vPosition;
-        attribute float lineID;
-        varying float vLineID;
-        void main() {
-          vPosition = position;
-          vLineID = lineID;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `#define MAX_PULSES ${MAX_PULSES}\n${gridShader}`,
+  varying vec3 vPosition;
+  void main() {
+    vPosition = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`,
+      fragmentShader: gridShader,
       transparent: true,
     });
 
@@ -153,47 +120,8 @@ export function Welcome() {
       createHorizonLight(camera, grid.rotation.x);
     scene.add(horizonLight);
 
-    const pulses: Pulse[] = [];
-
-    const updatePulses = () => {
-      const activePulses = pulses.filter((p) => p.active && p.progress < 1.0);
-
-      if (activePulses.length < MAX_PULSES) {
-        let newLine: number;
-        do {
-          newLine = Math.floor(Math.random() * (lineIndices.length / 2));
-        } while (activePulses.some((p) => p.lineIdx === newLine));
-        activePulses.push({ lineIdx: newLine, progress: 0, active: true });
-      }
-
-      gridMaterial.uniforms.u_activePulseCount.value = activePulses.length;
-      activePulses.forEach((pulse, i) => {
-        const idx1 = lineIndices[pulse.lineIdx * 2] * 3;
-        const idx2 = lineIndices[pulse.lineIdx * 2 + 1] * 3;
-
-        gridMaterial.uniforms.u_activeLineStarts.value[i].set(
-          positions[idx1],
-          positions[idx1 + 1],
-          positions[idx1 + 2]
-        );
-        gridMaterial.uniforms.u_activeLineEnds.value[i].set(
-          positions[idx2],
-          positions[idx2 + 1],
-          positions[idx2 + 2]
-        );
-        gridMaterial.uniforms.u_activeLineIDs.value[i] = pulse.lineIdx;
-        gridMaterial.uniforms.u_pulsePositions.value[i] = pulse.progress;
-
-        pulse.progress += PULSE_SPEED;
-        if (pulse.progress >= 1) pulse.active = false;
-      });
-
-      pulses.splice(0, pulses.length, ...activePulses);
-    };
-
     const animate = () => {
       requestAnimationFrame(animate);
-      updatePulses();
       gridMaterial.uniforms.u_time.value += 0.01;
       horizonMaterial.uniforms.u_time.value += 0.01;
       renderer.render(scene, camera);
