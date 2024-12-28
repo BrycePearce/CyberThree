@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import * as THREE from "three";
 import horizonFragmentShader from "./shaders/horizonFragmentShader.glsl";
-import rawFragmentShader from "./shaders/fragmentShader.glsl";
+import gridShader from "./shaders/gridShader.glsl";
 
 // Constants
 const HORIZON_LIGHT_WIDTH = 100;
@@ -141,7 +141,7 @@ export function Welcome() {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
-      fragmentShader: `#define MAX_PULSES ${MAX_PULSES}\n${rawFragmentShader}`,
+      fragmentShader: `#define MAX_PULSES ${MAX_PULSES}\n${gridShader}`,
       transparent: true,
     });
 
