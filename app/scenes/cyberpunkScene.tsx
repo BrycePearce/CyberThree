@@ -94,7 +94,7 @@ export function CyberpunkScene(): JSX.Element {
   return (
     <Canvas
       camera={{ position: [50, 5, 50], fov: 75 }}
-      style={{ background: "#000000", width: "100vw", height: "100vh" }}
+      style={{ width: "100vw", height: "100vh" }}
     >
       <CyberpunkGrid />
       <FirstPersonControls />
