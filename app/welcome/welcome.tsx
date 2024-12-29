@@ -1,12 +1,15 @@
 import { useRef, useEffect } from "react";
 import * as THREE from "three";
-import horizonFragmentShader from "./shaders/horizonFragmentShader.glsl";
+// import horizonFragmentShader from "./shaders/horizonFragmentShader.glsl";
 import gridShader from "./shaders/gridShader.glsl";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 // Constants
 const HORIZON_LIGHT_WIDTH = 100;
 const HORIZON_LIGHT_HEIGHT = 2;
-const GRID_SIZE = 50;
+const GRID_SIZE = 200;
 const STEP = 1;
 const PULSE_SPEED = 50;
 const PULSE_CHANGE_DIRECTION_PROBABILITY = 0.03;
@@ -83,11 +86,17 @@ const createGridGeometry = () => {
   const lineIndices = [];
   let currentIndex = 0;
 
+  // Create denser grid near camera, sparser grid far away
   for (let x = -GRID_SIZE; x <= GRID_SIZE; x += STEP) {
-    positions.push(x, 0, -GRID_SIZE, x, 0, GRID_SIZE);
+    // Adjust density based on distance from center
+    const zNear = -50; // Dense grid near camera
+    const zFar = -GRID_SIZE; // Sparse grid far from camera
+
+    positions.push(x, 0, zNear, x, 0, GRID_SIZE);
     lineIndices.push(currentIndex, currentIndex + 1);
     currentIndex += 2;
   }
+
   for (let z = -GRID_SIZE; z <= GRID_SIZE; z += STEP) {
     positions.push(-GRID_SIZE, 0, z, GRID_SIZE, 0, z);
     lineIndices.push(currentIndex, currentIndex + 1);
@@ -103,43 +112,43 @@ const createGridGeometry = () => {
   return { geometry, lineIndices, positions };
 };
 
-const createHorizonLight = (
-  camera: THREE.PerspectiveCamera,
-  gridRotation: number
-) => {
-  const geometry = new THREE.PlaneGeometry(
-    HORIZON_LIGHT_WIDTH,
-    HORIZON_LIGHT_HEIGHT
-  );
-  const material = new THREE.ShaderMaterial({
-    uniforms: { u_time: { value: 0 } },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: horizonFragmentShader,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: false,
-  });
+// const createHorizonLight = (
+//   camera: THREE.PerspectiveCamera,
+//   gridRotation: number
+// ) => {
+//   const geometry = new THREE.PlaneGeometry(
+//     HORIZON_LIGHT_WIDTH,
+//     HORIZON_LIGHT_HEIGHT
+//   );
+//   const material = new THREE.ShaderMaterial({
+//     uniforms: { u_time: { value: 0 }, u_intensity: { value: 0.4 } },
+//     vertexShader: `
+//       varying vec2 vUv;
+//       void main() {
+//         vUv = uv;
+//         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+//       }
+//     `,
+//     fragmentShader: horizonFragmentShader,
+//     transparent: true,
+//     blending: THREE.AdditiveBlending,
+//     depthWrite: false,
+//     depthTest: false,
+//   });
 
-  const calculateHorizonPosition = () => {
-    const t = Math.abs(-GRID_SIZE / (camera.position.z - -GRID_SIZE));
-    const y = -camera.position.y * t * Math.sin(gridRotation);
-    return { y, z: -GRID_SIZE + 5 };
-  };
+//   const calculateHorizonPosition = () => {
+//     const t = Math.abs(-GRID_SIZE / (camera.position.z - -GRID_SIZE));
+//     const y = -camera.position.y * t * Math.sin(gridRotation);
+//     return { y, z: -GRID_SIZE + 5 };
+//   };
 
-  const { y, z } = calculateHorizonPosition();
-  const light = new THREE.Mesh(geometry, material);
-  light.position.set(0, y - 8, z);
-  light.rotation.x = gridRotation;
+//   const { y, z } = calculateHorizonPosition();
+//   const light = new THREE.Mesh(geometry, material);
+//   light.position.set(0, y - 8, z);
+//   light.rotation.x = gridRotation;
 
-  return { light, material };
-};
+//   return { light, material };
+// };
 
 export function Welcome() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -195,9 +204,9 @@ void main() {
     grid.rotation.x = (-Math.PI / 2) * 0.1;
     scene.add(grid);
 
-    const { light: horizonLight, material: horizonMaterial } =
-      createHorizonLight(camera, grid.rotation.x);
-    scene.add(horizonLight);
+    // const { light: horizonLight, material: horizonMaterial } =
+    //   createHorizonLight(camera, grid.rotation.x);
+    // scene.add(horizonLight);
 
     // Initialize pulse system
     let pulseState = initializePulseState();
@@ -320,6 +329,21 @@ void main() {
       pulseState.position = newPosition;
     };
 
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      1.0, // Lower base strength
+      0.35, // Tighter radius
+      0.4 // Higher threshold to reduce background bloom
+    );
+    composer.addPass(renderPass);
+    composer.addPass(bloomPass);
+
     const animate = () => {
       const currentTime = performance.now();
       const deltaTime = (currentTime - lastUpdateTime) / 1000;
@@ -327,32 +351,25 @@ void main() {
 
       requestAnimationFrame(animate);
 
+      // Update uniforms
       gridMaterial.uniforms.u_time.value += 0.01;
-      horizonMaterial.uniforms.u_time.value += 0.01;
+      // horizonMaterial.uniforms.u_time.value += 0.01;
 
+      // Update pulse position - this was missing
       updatePulsePosition(deltaTime);
+      gridMaterial.uniforms.u_pulsePosition.value.copy(pulseState.position);
 
-      // Transform coordinates for shader
-      const rotationX = (-Math.PI / 2) * 0.1;
-      const pos = pulseState.position;
-
-      // Invert Y coordinate for proper grid alignment
-      gridMaterial.uniforms.u_pulsePosition.value.set(
-        pos.x,
-        -pos.y // CHANGED: Invert Y coordinate
-      );
-      gridMaterial.uniforms.u_pulseActive.value = pulseState.isActive
-        ? 1.0
-        : 0.0;
-
-      renderer.render(scene, camera);
+      composer.render();
     };
 
     const handleResize = () => {
       if (!canvas) return;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
+
       renderer.setSize(width, height, false);
+      composer.setSize(width, height);
+
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };
@@ -367,8 +384,8 @@ void main() {
       resizeObserver.disconnect();
       gridGeometry.dispose();
       gridMaterial.dispose();
-      horizonLight.geometry.dispose();
-      horizonMaterial.dispose();
+      // horizonLight.geometry.dispose();
+      // horizonMaterial.dispose();
       renderer.dispose();
     };
   }, []);

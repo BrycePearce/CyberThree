@@ -5,86 +5,86 @@ varying vec2 vUv;
 uniform float u_gridSize;
 uniform float u_time;
 uniform float u_gridSpeed;
-uniform vec2 u_pulsePosition;  // Changed to single position
+uniform vec2 u_pulsePosition;
 uniform float u_pulseActive;
 uniform float u_pulseIntensity;
 
-// Cyberpunk color palette
-vec3 colorA = vec3(1.0, 0.0, 1.0);    // magenta
-vec3 colorB = vec3(0.0, 0.7, 1.0);    // cyan
-vec3 colorC = vec3(0.8, 0.0, 0.8);    // purple
-vec3 colorD = vec3(0.0, 1.0, 0.8);    // turquoise
+vec3 tubeCore = vec3(1.0, 0.9, 0.9);
+vec3 innerGlow = vec3(0.0, 1.0, 0.8);    // Cyan
+vec3 outerGlow = vec3(0.0, 0.5, 0.4);    // Darker cyan
+
+float getDistanceFalloff(float dist) {
+    // Much more aggressive exponential falloff
+    float falloffStart = 0.3;
+    float falloffEnd = 0.6;
+
+    // Normalized distance for falloff calculation
+    float normalizedDist = smoothstep(falloffStart, falloffEnd, dist);
+
+    // Exponential falloff (much steeper than quadratic)
+    return exp(-normalizedDist * 5.0);
+}
+
+float createNeonLine(float distance, float distanceFromCamera) {
+    // Get very aggressive falloff
+    float intensity = getDistanceFalloff(distanceFromCamera);
+
+    // Core line gets thinner but maintains some visibility
+    float coreSize = mix(0.015, 0.005, distanceFromCamera);
+    float core = smoothstep(coreSize, 0.0, distance);
+
+    // Glow disappears much more quickly with distance
+    float innerGlowSize = mix(0.08, 0.02, distanceFromCamera);
+    float outerGlowSize = mix(0.15, 0.05, distanceFromCamera);
+
+    float innerGlow = smoothstep(innerGlowSize, coreSize, distance) * intensity;
+    float outerGlow = smoothstep(outerGlowSize, innerGlowSize, distance) * intensity * intensity;
+
+    return core * intensity + (innerGlow * 0.5) + (outerGlow * 0.2);
+}
+
+float getNeonGridEffect(vec2 coord, float distanceFromCamera) {
+    vec2 grid = abs(fract(coord - 0.5) - 0.5) * 2.0;
+    float horizontalLine = createNeonLine(grid.y, distanceFromCamera);
+    float verticalLine = createNeonLine(grid.x, distanceFromCamera);
+
+    return max(horizontalLine, verticalLine);
+}
 
 float calculatePulseEffect(vec2 uv) {
     vec2 pulseVector = uv - u_pulsePosition;
     float dist = length(pulseVector);
-
-    // Grid-aligned paths
-    float horizontalLine = abs(fract(uv.y + 0.5) - 0.5);
-    float verticalLine = abs(fract(uv.x + 0.5) - 0.5);
-    float gridLines = min(horizontalLine, verticalLine);
-
-    // Create a much narrower, more focused surge
-    float pulseRadius = 1.5;
-    float coreRadius = 0.05; // Even smaller core for sharper effect
-
-    // Sharp directional surge
-    vec2 absVector = abs(pulseVector);
-    float directionalDist = min(absVector.x, absVector.y); // Makes it follow grid lines more
-    float surge = smoothstep(0.05, 0.0, gridLines) *
-        smoothstep(pulseRadius, coreRadius, directionalDist);
-
-    // Electrical arcing effect
-    float arcNoise = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453123);
-    float arcs = step(0.98, arcNoise) * smoothstep(pulseRadius * 0.5, 0.0, dist);
-
-    // Add rapid, sharp fluctuations
-    float flicker = sin(u_time * 60.0) * 0.5 + 0.5;
-    float surgeWave = abs(sin(dist * 15.0 - u_time * 20.0));
-
-    // Combine for final effect
-    float pulseStrength = (surge * 2.0 + arcs) * surgeWave * flicker;
-    pulseStrength *= smoothstep(pulseRadius, 0.0, dist);
-
-    return pulseStrength * u_pulseActive * u_pulseIntensity;
+    float pulse = smoothstep(2.0, 0.5, dist);
+    float ring = sin(dist * 3.0 - u_time * 8.0) * 0.5 + 0.5;
+    return pulse * ring * u_pulseActive * u_pulseIntensity;
 }
 
 void main() {
     vec2 gridPosition = vUv;
     float dist = length(gridPosition) / u_gridSize;
 
-    // Base grid color calculations
-    float speedControlledTime = u_time * u_gridSpeed;
-    float timeMod = sin(speedControlledTime * 5.0) * 0.5 + 0.5;
-    float colorShift = sin(dist * 3.0 + speedControlledTime * 2.0) * 0.5 + 0.5;
-    float wave = sin(dist * 5.0 - speedControlledTime * 8.0) * 0.5 + 0.5;
+    // Get neon effect with very aggressive distance falloff
+    float neonEffect = getNeonGridEffect(gridPosition, dist);
 
-    vec3 color1 = mix(colorA, colorB, timeMod);
-    vec3 color2 = mix(colorC, colorD, colorShift);
-    vec3 baseColor = mix(color1, color2, wave);
+    // Layer the colors
+    vec3 color = mix(outerGlow, innerGlow, neonEffect);
+    color = mix(color, tubeCore, neonEffect * neonEffect);
 
-    // Enhanced pulse effect
+    // Apply extremely aggressive distance-based intensity falloff
+    float falloff = getDistanceFalloff(dist);
+    color *= falloff;
+
+    // Subtle time variation
+    float timeVar = sin(u_time * u_gridSpeed) * 0.1 + 0.9;
+    color *= timeVar;
+
+    // Add pulse effect
     float pulseEffect = calculatePulseEffect(gridPosition);
-    vec3 pulseColor = vec3(1.0);  // Bright white core
+    color = mix(color, vec3(1.0), pulseEffect * 0.4);
 
-    // Add slight color variation to pulse
-    pulseColor = mix(pulseColor, colorB, pulseEffect * 0.3);
+    // Calculate alpha with extreme falloff
+    float alpha = falloff * neonEffect;
+    alpha = clamp(alpha, 0.0, 0.9);
 
-    // Blend pulse with base color
-    vec3 finalColor = mix(baseColor, pulseColor, pulseEffect);
-
-    // Apply distance-based effects
-    float fadeDistance = dist * (0.5 + sin(speedControlledTime * 0.05) * 0.1);
-    float alpha = 1.0 - fadeDistance;
-    alpha = clamp(alpha, 0.3, 1.0);
-
-    // Enhance intensity near pulse
-    float intensity = 1.0 - (dist * 0.2);
-    intensity = clamp(intensity + pulseEffect, 0.7, 1.8);
-    finalColor = finalColor * intensity + vec3(0.2);
-
-    // Boost alpha where pulse is active
-    alpha = max(alpha, pulseEffect);
-
-    gl_FragColor = vec4(finalColor, alpha);
+    gl_FragColor = vec4(color, alpha);
 }

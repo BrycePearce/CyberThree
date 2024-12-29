@@ -1,5 +1,6 @@
 varying vec2 vUv;
 uniform float u_time;
+uniform float u_intensity;
 
 void main() {
     // Enhanced colors with higher intensity
@@ -52,14 +53,14 @@ void main() {
     brightness += energyLines;
 
     // Final color combination
-    vec3 finalColor = baseColor * brightness * 2.0;
+    vec3 finalColor = baseColor * brightness * 2.0 * u_intensity;
 
     // Add white hot core
     float whiteness = coreLine * mainPulse;
-    finalColor = mix(finalColor, vec3(1.5), whiteness * 0.7);
+    finalColor = mix(finalColor, vec3(1.5 * u_intensity), whiteness * 0.7);
 
     // Smooth alpha falloff
-    float alpha = brightness;
+    float alpha = brightness * u_intensity;
     alpha = smoothstep(0.0, 0.2, alpha) * 0.9;
 
     gl_FragColor = vec4(finalColor, alpha);
