@@ -1,155 +1,143 @@
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useRef, useMemo } from "react";
+import { useRef, useEffect } from "react";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import FirstPersonControls from "~/controls/FirstPersonControls";
 
 interface TubeData {
-  index: number;
+  baseColor: THREE.Color;
+  offset: number;
 }
 
-type GridMesh = THREE.Mesh<THREE.TubeGeometry, THREE.MeshStandardMaterial>;
-type GridGroup = THREE.Group & {
-  children: GridMesh[];
+type GridMesh = THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial> & {
+  userData: TubeData;
 };
 
-const CyberpunkGrid: React.FC = () => {
-  const gridRef = useRef<GridGroup>(null);
+function CyberpunkGrid() {
+  const groupRef = useRef<THREE.Group>(null);
+  const tubesRef = useRef<GridMesh[]>([]);
 
   // Grid parameters
+  const baseRadius = 0.06;
   const gridWidth = 300;
   const gridDepth = 250;
   const spacing = 2;
-  const baseRadius = 0.04;
 
-  // Precompute the lines in a memo so we don't recreate them on every render
-  const grid = useMemo(() => {
-    const group = new THREE.Group() as GridGroup;
+  // Colors
+  const pink = new THREE.Color("#A23EBF");
+  const purple = new THREE.Color("#653EBF");
+  const cyan = new THREE.Color("#3EA6BF");
 
-    // We'll define two “end” colors for our gradient:
-    // For example, from a bright teal (#00ffff) to a hot pink (#ff00ff).
-    const colorA = new THREE.Color("#00ffff"); // neon teal
-    const colorB = new THREE.Color("#ff00ff"); // neon pink
+  function getCyberpunkColor(fraction: number) {
+    const PURPLE_BAND_START = 0.47;
+    const PURPLE_BAND_END = 0.53;
 
-    // Function to create each tube
-    const createTube = (
-      start: THREE.Vector3,
-      end: THREE.Vector3,
-      t: number, // a parameter [0..1] to help pick a color from colorA->colorB
-      index: number
-    ): GridMesh => {
-      const curve = new THREE.LineCurve3(start, end);
-      const segments = Math.ceil(start.distanceTo(end) / 2);
-      const geometry = new THREE.TubeGeometry(
-        curve,
-        segments,
-        baseRadius,
-        8,
-        false
-      );
+    if (fraction < PURPLE_BAND_START) {
+      const localFrac = fraction / PURPLE_BAND_START;
+      return pink.clone().lerp(purple, localFrac);
+    } else if (fraction < PURPLE_BAND_END) {
+      return purple.clone();
+    } else {
+      const localFrac = (fraction - PURPLE_BAND_END) / (1 - PURPLE_BAND_END);
+      return purple.clone().lerp(cyan, localFrac);
+    }
+  }
 
-      // Interpolate color between colorA and colorB
-      // We’ll also use that color for emissive so it glows.
-      const lineColor = colorA.clone().lerp(colorB, t);
+  function createTube(
+    start: THREE.Vector3,
+    end: THREE.Vector3,
+    fraction: number
+  ) {
+    const curve = new THREE.LineCurve3(start, end);
+    const segments = Math.ceil(start.distanceTo(end) / 2);
+    const color = getCyberpunkColor(fraction);
 
-      const material = new THREE.MeshPhysicalMaterial({
-        color: lineColor,
-        emissive: lineColor.clone().multiplyScalar(0.2),
-        emissiveIntensity: 0.3,
-        roughness: 0.0,
-        metalness: 0.8,
-        transmission: 0.9, // or use 'opacity' if you don't need real refraction
-        thickness: 1.0,
-        ior: 1.5,
-        reflectivity: 0.8,
-        toneMapped: false,
-      });
-      const tube = new THREE.Mesh(geometry, material);
-      tube.userData = { index } as TubeData;
-      return tube;
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      toneMapped: false,
+    });
+
+    const geometry = new THREE.TubeGeometry(
+      curve,
+      segments,
+      baseRadius,
+      8,
+      false
+    );
+    const tube = new THREE.Mesh(geometry, material) as GridMesh;
+
+    tube.userData = {
+      baseColor: color,
+      offset: Math.random() * 10, // Adjust to taste
     };
 
-    // Create z-axis lines
-    let index = 0;
+    return tube;
+  }
+
+  // Create the grid one time
+  useEffect(() => {
+    if (!groupRef.current || tubesRef.current.length > 0) return;
+
+    const gridGroup = new THREE.Group();
+
+    // Vertical lines
     for (let x = -gridWidth / 2; x <= gridWidth / 2; x += spacing) {
-      // Map x to a t in [0..1]
-      const t = (x + gridWidth / 2) / gridWidth;
+      const fraction = (x + gridWidth / 2) / gridWidth;
       const tube = createTube(
         new THREE.Vector3(x, 0, -gridDepth / 2),
         new THREE.Vector3(x, 0, gridDepth / 2),
-        t,
-        index++
+        fraction
       );
-      group.add(tube);
+      gridGroup.add(tube);
+      tubesRef.current.push(tube);
     }
 
-    // Create x-axis lines
+    // Horizontal lines
     for (let z = -gridDepth / 2; z <= gridDepth / 2; z += spacing) {
-      // Map z to a t in [0..1]
-      const t = (z + gridDepth / 2) / gridDepth;
+      const fraction = (z + gridDepth / 2) / gridDepth;
       const tube = createTube(
         new THREE.Vector3(-gridWidth / 2, 0, z),
         new THREE.Vector3(gridWidth / 2, 0, z),
-        t,
-        index++
+        fraction
       );
-      group.add(tube);
+      gridGroup.add(tube);
+      tubesRef.current.push(tube);
     }
 
-    return group;
-  }, [gridWidth, gridDepth, spacing]);
+    groupRef.current.add(gridGroup);
+  }, []);
 
-  useFrame(({ clock }) => {
-    const time = clock.getElapsedTime();
-    if (!gridRef.current) return;
+  // Animate tubes
+  useFrame((state) => {
+    const time = state.clock.getElapsedTime();
+    tubesRef.current.forEach((tube) => {
+      if (!tube.userData?.baseColor) return;
+      const { baseColor, offset } = tube.userData;
 
-    gridRef.current.children.forEach((child, i) => {
-      const mesh = child as GridMesh;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
+      // Sine wave from 0..1
+      const pulse = (Math.sin((time + offset) * 2) + 1) * 0.5;
+      const brightnessFactor = 1 + pulse;
+      const newColor = baseColor.clone().multiplyScalar(brightnessFactor);
 
-      // Simple pulse between #00ffff and #ff00ff
-      const offset = 0.5 * Math.sin(time + i * 0.1) + 0.5;
-      const colorA = new THREE.Color("#00ffff");
-      const colorB = new THREE.Color("#ff00ff");
-      const newColor = colorA.clone().lerp(colorB, offset);
-
-      // Normal color
-      mat.color.copy(newColor);
-
-      // Make the emissive glow a bit more
-      mat.emissive.copy(newColor).multiplyScalar(4); // modest multiplier
+      (tube.material as THREE.MeshBasicMaterial).color = newColor;
     });
   });
 
-  return (
-    <>
-      {/* Basic lighting */}
-      <ambientLight intensity={0.15} />
-      <pointLight position={[10, 10, 10]} intensity={0.8} />
+  return <group ref={groupRef} />;
+}
 
-      {/* Grid */}
-      <primitive object={grid} ref={gridRef} />
-    </>
-  );
-};
-
-export function CyberpunkScene(): JSX.Element {
+export function CyberpunkScene() {
   return (
     <Canvas
-      camera={{ position: [50, 5, 50], fov: 75 }}
+      camera={{ position: [100, 15, 100], fov: 75 }}
       style={{ width: "100vw", height: "100vh" }}
-      gl={{
-        toneMapping: THREE.NoToneMapping,
-        outputColorSpace: THREE.LinearSRGBColorSpace,
-      }}
     >
-      <color attach="background" args={["#000000"]} />
       <CyberpunkGrid />
       <FirstPersonControls />
       <EffectComposer>
         <Bloom
-          intensity={5}
-          luminanceThreshold={0.2}
+          intensity={3.0}
+          luminanceThreshold={0.1}
           luminanceSmoothing={0.9}
           mipmapBlur
         />
