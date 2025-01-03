@@ -46,7 +46,7 @@ function CyberpunkGrid() {
         onGridLinesCreated={setGridLines}
       />
       <PerimeterFrame gridWidth={gridWidth} gridDepth={gridDepth} />
-      {gridLines.length > 0 && <EnergyPulses gridLines={gridLines} />}
+      {/* {gridLines.length > 0 && <EnergyPulses gridLines={gridLines} />} */}
     </group>
   );
 }
