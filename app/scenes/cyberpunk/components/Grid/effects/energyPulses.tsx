@@ -13,6 +13,8 @@ interface Pulse {
   color: THREE.Color;
   lifetime: number;
   startAtBeginning: boolean;
+  baseEmissive: THREE.Color;
+  originalGridEmissive: Map<THREE.Mesh, THREE.Color>;
 }
 
 interface EnergyPulsesProps {
@@ -48,17 +50,18 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
     );
 
     // Create pulse mesh
-    const geometry = new THREE.CylinderGeometry(0.15, 0.15, 6.0, 8); // Doubled length to 6.0
+    const geometry = new THREE.CylinderGeometry(0.15, 0.15, 6.0, 8);
 
     // Rotate geometry based on line direction
     if (startLine.isVertical) {
-      geometry.rotateX(Math.PI / 2); // Vertical lines get X rotation
+      geometry.rotateX(Math.PI / 2);
     } else {
-      geometry.rotateZ(Math.PI / 2); // Horizontal lines get Z rotation
+      geometry.rotateZ(Math.PI / 2);
     }
 
     const baseColor = startLine.mesh.userData.baseColor.clone();
     const pulseColor = new THREE.Color(1, 1, 1).lerp(baseColor, 0.3);
+    const baseEmissive = new THREE.Color(0x00ffff).lerp(baseColor, 0.5); // Cyan tint
 
     const material = new THREE.MeshStandardMaterial({
       emissive: pulseColor,
@@ -74,6 +77,13 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
     mesh.position.copy(position);
     groupRef.current?.add(mesh);
 
+    // Store original emissive colors of grid lines
+    const originalGridEmissive = new Map<THREE.Mesh, THREE.Color>();
+    gridLines.forEach((line) => {
+      const material = line.mesh.material as THREE.MeshStandardMaterial;
+      originalGridEmissive.set(line.mesh, material.emissive.clone());
+    });
+
     return {
       position,
       direction,
@@ -84,6 +94,8 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
       color: pulseColor,
       lifetime: 0,
       startAtBeginning,
+      baseEmissive,
+      originalGridEmissive,
     };
   };
 
@@ -137,6 +149,14 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
           : newPosition.x < endPosition.x;
 
         if (isPastEnd) {
+          // Reset grid line emissive colors
+          pulse.originalGridEmissive.forEach((color, mesh) => {
+            (mesh.material as THREE.MeshStandardMaterial).emissive.copy(color);
+            (
+              mesh.material as THREE.MeshStandardMaterial
+            ).emissiveIntensity = 1.0;
+          });
+
           groupRef.current?.remove(pulse.mesh);
           pulse.mesh.geometry.dispose();
           (pulse.mesh.material as THREE.Material).dispose();
@@ -147,6 +167,46 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
         pulse.mesh.position.copy(newPosition);
         pulse.position.copy(newPosition);
 
+        // Color variation effect
+        const pulseMaterial = pulse.mesh.material as THREE.MeshStandardMaterial;
+        const colorPhase = (Math.sin(state.clock.elapsedTime * 10) + 1) / 2;
+        pulseMaterial.emissive
+          .copy(pulse.baseEmissive)
+          .lerp(new THREE.Color(1, 1, 1), colorPhase);
+
+        // Intersection glow effect
+        const GLOW_RADIUS = 0.1; // How far the glow spreads
+        const MAX_INTENSITY = 0.1; // Maximum emissive intensity
+
+        gridLines.forEach((gridLine) => {
+          const lineMaterial = gridLine.mesh
+            .material as THREE.MeshStandardMaterial;
+          const originalColor = pulse.originalGridEmissive.get(gridLine.mesh);
+
+          if (originalColor) {
+            // Calculate distance to pulse
+            const distance = gridLine.isVertical
+              ? Math.abs(gridLine.coordinate - pulse.position.x)
+              : Math.abs(gridLine.coordinate - pulse.position.z);
+
+            if (distance < GLOW_RADIUS) {
+              // Calculate intensity based on distance
+              const intensity = MAX_INTENSITY * (1 - distance / GLOW_RADIUS);
+              lineMaterial.emissiveIntensity = 1 + intensity;
+
+              // Blend with pulse color
+              const blendFactor = 0.3 * (1 - distance / GLOW_RADIUS);
+              lineMaterial.emissive
+                .copy(originalColor)
+                .lerp(pulse.baseEmissive, blendFactor);
+            } else {
+              // Reset to original state
+              lineMaterial.emissive.copy(originalColor);
+              lineMaterial.emissiveIntensity = 1.0;
+            }
+          }
+        });
+
         return true;
       });
     });
@@ -156,6 +216,12 @@ export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
   useEffect(() => {
     return () => {
       pulses.forEach((pulse) => {
+        // Reset grid line emissive colors
+        pulse.originalGridEmissive.forEach((color, mesh) => {
+          (mesh.material as THREE.MeshStandardMaterial).emissive.copy(color);
+          (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.0;
+        });
+
         pulse.mesh.geometry.dispose();
         (pulse.mesh.material as THREE.Material).dispose();
       });
