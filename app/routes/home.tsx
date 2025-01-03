@@ -1,5 +1,5 @@
 import type { Route } from "./+types/home";
-import { CyberpunkScene } from "../scenes/cyberpunkScene";
+import { CyberpunkScene } from "../scenes/cyberpunk/cyberpunkScene";
 
 export function meta({}: Route.MetaArgs) {
   return [
