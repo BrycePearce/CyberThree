@@ -7,7 +7,9 @@ import { Grid } from "./components/Grid";
 import { PerimeterFrame } from "./components/Grid/components/perimeterFrame";
 import { useGridPulseEffect } from "./components/Grid/hooks/useGridPulseEffect";
 import type { GridLine } from "~/types/gridTypes";
+import { EnergyPulses } from "./components/Grid/effects/energyPulses";
 
+// todo combine this with grid.tsx
 function CyberpunkGrid() {
   const groupRef = useRef<THREE.Group>(null);
   const [gridLines, setGridLines] = useState<GridLine[]>([]);
@@ -19,7 +21,7 @@ function CyberpunkGrid() {
   const spacing = 2;
 
   // sinewave effect to create some noise on the base grid
-  useGridPulseEffect(groupRef);
+  // useGridPulseEffect(groupRef);
 
   return (
     <group ref={groupRef}>
@@ -31,7 +33,7 @@ function CyberpunkGrid() {
         onGridLinesCreated={setGridLines}
       />
       <PerimeterFrame gridWidth={gridWidth} gridDepth={gridDepth} />
-      {/* {gridLines.length > 0 && <EnergyPulses gridLines={gridLines} />} */}
+      {gridLines.length > 0 && <EnergyPulses gridLines={gridLines} />}
     </group>
   );
 }

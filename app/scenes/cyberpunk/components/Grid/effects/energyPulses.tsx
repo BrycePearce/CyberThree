@@ -1,216 +1,166 @@
-import React, { useRef, useState, useEffect } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { useFrame } from "@react-three/fiber";
+import { useState, useEffect, useRef } from "react";
 import type { GridLine } from "~/types/gridTypes";
 
-interface TubeData {
-  baseColor: THREE.Color;
-  offset: number;
-  emissiveBase: THREE.Color;
-}
-
-interface GridMesh
-  extends THREE.Mesh<THREE.TubeGeometry, THREE.MeshStandardMaterial> {
-  userData: TubeData;
-}
-
 interface Pulse {
-  id: string; // Add unique identifier
-  lineIndex: number;
-  position: number;
-  direction: number;
-  turned: boolean;
+  position: THREE.Vector3;
+  direction: THREE.Vector3;
+  progress: number;
+  speed: number;
+  line: GridLine;
+  mesh: THREE.Mesh;
   color: THREE.Color;
-  startTime: number;
+  lifetime: number;
+  startAtBeginning: boolean;
 }
 
 interface EnergyPulsesProps {
   gridLines: GridLine[];
-  spawnInterval?: number;
 }
 
-// Constants
-const PULSE_SPEED = 0.1;
-const CHANGE_DIRECTION_PROBABILITY = 0.3;
-
-export function EnergyPulses({
-  gridLines,
-  spawnInterval = 2000,
-}: EnergyPulsesProps) {
-  const pulsesRef = useRef<Pulse[]>([]);
+export function EnergyPulses({ gridLines }: EnergyPulsesProps) {
+  const [pulses, setPulses] = useState<Pulse[]>([]);
   const groupRef = useRef<THREE.Group>(null);
-  const [pulseCount, setPulseCount] = useState<number>(0);
 
-  // Counter for generating unique IDs
-  const idCounterRef = useRef(0);
-
-  // Create new pulse
+  // Create a new pulse
   const createPulse = () => {
-    // Only pick lines that reach the grid edges
-    const edgeLines = gridLines.filter((line) => {
-      const span = Math.abs(line.end - line.start);
-      return span > line.length * 0.8;
+    if (gridLines.length === 0) return;
+
+    // Randomly select a starting line
+    const startLine = gridLines[Math.floor(Math.random() * gridLines.length)];
+
+    // Determine start position (either at the beginning or end of the line)
+    const startAtBeginning = Math.random() > 0.5;
+    const startCoord = startAtBeginning ? startLine.start : startLine.end;
+
+    const position = new THREE.Vector3(
+      startLine.isVertical ? startLine.coordinate : startCoord,
+      0,
+      startLine.isVertical ? startCoord : startLine.coordinate
+    );
+
+    // Create direction vector along the line
+    const direction = new THREE.Vector3(
+      startLine.isVertical ? 0 : startAtBeginning ? 1 : -1,
+      0,
+      startLine.isVertical ? (startAtBeginning ? 1 : -1) : 0
+    );
+
+    // Create pulse mesh
+    const geometry = new THREE.CylinderGeometry(0.15, 0.15, 6.0, 8); // Doubled length to 6.0
+
+    // Rotate geometry based on line direction
+    if (startLine.isVertical) {
+      geometry.rotateX(Math.PI / 2); // Vertical lines get X rotation
+    } else {
+      geometry.rotateZ(Math.PI / 2); // Horizontal lines get Z rotation
+    }
+
+    const baseColor = startLine.mesh.userData.baseColor.clone();
+    const pulseColor = new THREE.Color(1, 1, 1).lerp(baseColor, 0.3);
+
+    const material = new THREE.MeshStandardMaterial({
+      emissive: pulseColor,
+      emissiveIntensity: 5.0,
+      color: pulseColor.clone().multiplyScalar(0.9),
+      metalness: 0.7,
+      roughness: 0.2,
+      transparent: true,
+      opacity: 1.0,
     });
 
-    const lineIndex = gridLines.indexOf(
-      edgeLines[Math.floor(Math.random() * edgeLines.length)]
-    );
-    const line = gridLines[lineIndex];
-
-    // Always start from an edge
-    const startPos = Math.random() < 0.5 ? 0 : 1;
-    const direction = startPos === 0 ? 1 : -1;
-
-    const baseColor = line.mesh.userData.baseColor.clone();
-    const pulseColor = baseColor.lerp(new THREE.Color("#ffffff"), 0.8);
-
-    // Increment counter and use it for unique ID
-    idCounterRef.current += 1;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(position);
+    groupRef.current?.add(mesh);
 
     return {
-      id: `pulse-${idCounterRef.current}`,
-      lineIndex,
-      position: startPos,
+      position,
       direction,
-      turned: false,
+      progress: 0,
+      speed: 800,
+      line: startLine,
+      mesh,
       color: pulseColor,
-      startTime: performance.now(),
+      lifetime: 0,
+      startAtBeginning,
     };
   };
 
+  // Spawn new pulses periodically
   useEffect(() => {
-    if (gridLines.length === 0) return;
+    const interval = setInterval(() => {
+      setPulses((current) => {
+        const newPulse = createPulse();
+        return newPulse ? [...current, newPulse] : current;
+      });
+    }, 2000);
 
-    const handleSpawn = () => {
-      const newPulse = createPulse();
-      pulsesRef.current = [...pulsesRef.current, newPulse];
-      setPulseCount((prev) => prev + 1);
-    };
+    return () => clearInterval(interval);
+  }, [gridLines]);
 
-    handleSpawn();
-    const intervalId = setInterval(handleSpawn, spawnInterval);
-    return () => clearInterval(intervalId);
-  }, [gridLines, spawnInterval]);
+  // Animate pulses
+  useFrame((state, delta) => {
+    setPulses((current) => {
+      return current.filter((pulse) => {
+        // Update pulse position
+        pulse.progress += pulse.speed * delta;
+        pulse.lifetime += delta;
 
-  useFrame(() => {
-    if (!pulsesRef.current.length) return;
+        // Calculate new position
+        const newPosition = pulse.position
+          .clone()
+          .add(pulse.direction.clone().multiplyScalar(pulse.speed * delta));
 
-    const currentTime = performance.now();
-    const nextPulses: Pulse[] = [];
+        // Check if new position would be beyond the end of the line
+        const endPosition = new THREE.Vector3(
+          pulse.line.isVertical
+            ? pulse.line.coordinate
+            : pulse.startAtBeginning
+            ? pulse.line.end
+            : pulse.line.start,
+          0,
+          pulse.line.isVertical
+            ? pulse.startAtBeginning
+              ? pulse.line.end
+              : pulse.line.start
+            : pulse.line.coordinate
+        );
 
-    for (const pulse of pulsesRef.current) {
-      const line = gridLines[pulse.lineIndex];
+        // Check if we've gone past the end position in the direction we're traveling
+        const isPastEnd = pulse.startAtBeginning
+          ? pulse.line.isVertical
+            ? newPosition.z > endPosition.z
+            : newPosition.x > endPosition.x
+          : pulse.line.isVertical
+          ? newPosition.z < endPosition.z
+          : newPosition.x < endPosition.x;
 
-      // Calculate new position
-      const timeElapsed = (currentTime - pulse.startTime) / 1000;
-      const totalDistance = PULSE_SPEED * timeElapsed;
-      const newPosition =
-        pulse.direction > 0
-          ? pulse.position + totalDistance
-          : pulse.position - totalDistance;
-
-      // Check if pulse should turn at intersection
-      if (!pulse.turned) {
-        for (const otherIndex of line.intersections) {
-          const otherLine = gridLines[otherIndex];
-
-          // Calculate intersection point
-          const intersectionFrac = line.isVertical
-            ? (otherLine.coordinate - line.start) / line.length
-            : (otherLine.coordinate - line.start) / line.length;
-
-          const distanceToIntersection = Math.abs(
-            intersectionFrac - newPosition
-          );
-
-          // If near intersection and random check passes, turn the pulse
-          if (
-            distanceToIntersection < 0.02 &&
-            Math.random() < CHANGE_DIRECTION_PROBABILITY
-          ) {
-            const newFrac =
-              (line.coordinate - otherLine.start) / otherLine.length;
-
-            // Create turned pulse with new ID
-            idCounterRef.current += 1;
-            nextPulses.push({
-              ...pulse,
-              id: `pulse-${idCounterRef.current}`,
-              lineIndex: otherIndex,
-              position: newFrac,
-              direction: Math.random() < 0.5 ? 1 : -1,
-              turned: true,
-              startTime: currentTime,
-            });
-
-            // Skip adding original pulse
-            continue;
-          }
+        if (isPastEnd) {
+          groupRef.current?.remove(pulse.mesh);
+          pulse.mesh.geometry.dispose();
+          (pulse.mesh.material as THREE.Material).dispose();
+          return false;
         }
-      }
 
-      // Keep pulse if it's still within bounds
-      if (newPosition >= -0.05 && newPosition <= 1.05) {
-        nextPulses.push({
-          ...pulse,
-          position: newPosition,
-        });
-      }
-    }
+        // Update mesh position
+        pulse.mesh.position.copy(newPosition);
+        pulse.position.copy(newPosition);
 
-    pulsesRef.current = nextPulses;
-    if (nextPulses.length !== pulseCount) {
-      setPulseCount(nextPulses.length);
-    }
+        return true;
+      });
+    });
   });
 
-  return (
-    <group ref={groupRef}>
-      {pulsesRef.current.map((pulse) => {
-        const line = gridLines[pulse.lineIndex];
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      pulses.forEach((pulse) => {
+        pulse.mesh.geometry.dispose();
+        (pulse.mesh.material as THREE.Material).dispose();
+      });
+    };
+  }, []);
 
-        const pulseLength = 4;
-        const halfLength = pulseLength / 2;
-
-        let centerPoint: THREE.Vector3;
-        let startPoint: THREE.Vector3;
-        let endPoint: THREE.Vector3;
-
-        if (line.isVertical) {
-          const z = line.start + pulse.position * line.length;
-          centerPoint = new THREE.Vector3(line.coordinate, 0, z);
-          startPoint = centerPoint
-            .clone()
-            .add(new THREE.Vector3(0, 0, -halfLength));
-          endPoint = centerPoint
-            .clone()
-            .add(new THREE.Vector3(0, 0, halfLength));
-        } else {
-          const x = line.start + pulse.position * line.length;
-          centerPoint = new THREE.Vector3(x, 0, line.coordinate);
-          startPoint = centerPoint
-            .clone()
-            .add(new THREE.Vector3(-halfLength, 0, 0));
-          endPoint = centerPoint
-            .clone()
-            .add(new THREE.Vector3(halfLength, 0, 0));
-        }
-
-        const curve = new THREE.LineCurve3(startPoint, endPoint);
-        const geometry = new THREE.TubeGeometry(curve, 8, 0.4, 8, false);
-
-        const material = new THREE.MeshStandardMaterial({
-          emissive: pulse.color,
-          emissiveIntensity: 5.0,
-          color: pulse.color.clone().multiplyScalar(0.9),
-          metalness: 0.7,
-          roughness: 0.2,
-          transparent: true,
-          opacity: 1.0,
-        });
-
-        return <mesh key={pulse.id} geometry={geometry} material={material} />;
-      })}
-    </group>
-  );
+  return <group ref={groupRef} />;
 }

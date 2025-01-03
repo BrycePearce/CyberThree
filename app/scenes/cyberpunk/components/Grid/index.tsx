@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { useEffect, useMemo } from "react";
 import { getCyberpunkColor } from "../utils/colors";
+import type { GridLine } from "~/types/gridTypes";
 
 interface GridProps {
   gridWidth: number;
