@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { useEffect, useMemo } from "react";
 import { getCyberpunkColor } from "../utils/colors";
-import type { GridLine } from "~/types/gridTypes";
+import type { GridLine, GridMesh, TubeData } from "~/types/gridTypes";
 
 interface GridProps {
   gridWidth: number;
@@ -23,7 +23,7 @@ export function Grid({
       start: THREE.Vector3,
       end: THREE.Vector3,
       fraction: number
-    ) {
+    ): GridMesh {
       const curve = new THREE.LineCurve3(start, end);
       const segments = Math.ceil(start.distanceTo(end) / 2);
       const color = getCyberpunkColor(fraction);
@@ -45,12 +45,12 @@ export function Grid({
         false
       );
 
-      const tube = new THREE.Mesh(geometry, material);
+      const tube = new THREE.Mesh(geometry, material) as GridMesh;
       tube.userData = {
         baseColor: color,
         offset: Math.random() * 10,
         emissiveBase: color.clone(),
-      };
+      } as TubeData;
 
       return tube;
     }
