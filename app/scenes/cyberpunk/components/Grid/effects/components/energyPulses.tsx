@@ -41,7 +41,7 @@ export function EnergyPulses({
   pulseLength = 6.0,
   maxPulses = 4,
   emissiveIntensity = 5.0,
-  spawnRate = 0.1, // Default to one pulse every 2 seconds
+  spawnRate = 0.3,
   spawnJitter = 0.5, // Default to ±50% random variation
 }: EnergyPulsesProps) {
   // Track all active pulses

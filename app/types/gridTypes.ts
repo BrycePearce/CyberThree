@@ -19,3 +19,18 @@ export interface GridLine {
     length: number;
     intersections: number[];
 }
+
+export interface GridEffectsManagerOptions {
+    lineWaveInterval?: number;
+    maxRadius?: number;
+    speed?: number;
+    color?: THREE.Color;
+    maxWaves?: number;
+}
+
+export type EffectType = 'lineWave' | 'energyPulse' | 'energyPulseV' | 'ripple';
+
+export interface GridEffectProps {
+    gridLines: GridLine[];
+    isActive?: boolean;
+}

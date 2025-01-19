@@ -1,13 +1,13 @@
 import * as THREE from "three";
-import { Canvas } from "@react-three/fiber";
-import { useRef, useState } from "react";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import FirstPersonControls from "~/controls/FirstPersonControls";
+import { Canvas } from "@react-three/fiber";
+import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { Grid } from "./components/Grid";
+import { GridEffects } from "./components/Grid/components/gridEffects";
+import { IndependentGridEffects } from "./components/Grid/effects/independentGridEffects";
 import { PerimeterFrame } from "./components/Grid/components/perimeterFrame";
-import { useGridPulseEffect } from "./components/Grid/hooks/useGridPulseEffect";
+import { useRef, useState } from "react";
 import type { GridLine } from "~/types/gridTypes";
-import { EnergyPulses } from "./components/Grid/effects/energyPulses";
 
 // todo combine this with grid.tsx
 function CyberpunkGrid() {
@@ -20,9 +20,6 @@ function CyberpunkGrid() {
   const gridDepth = 350;
   const spacing = 2;
 
-  // sinewave effect to create some noise on the base grid
-  // useGridPulseEffect(groupRef);
-
   return (
     <group ref={groupRef}>
       <Grid
@@ -33,7 +30,12 @@ function CyberpunkGrid() {
         onGridLinesCreated={setGridLines}
       />
       <PerimeterFrame gridWidth={gridWidth} gridDepth={gridDepth} />
-      {gridLines.length > 0 && <EnergyPulses gridLines={gridLines} />}
+      {gridLines.length > 0 && (
+        <>
+          <IndependentGridEffects gridLines={gridLines} />
+          <GridEffects gridLines={gridLines} />
+        </>
+      )}
     </group>
   );
 }

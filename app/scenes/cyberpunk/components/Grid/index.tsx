@@ -35,6 +35,7 @@ export function Grid({
         metalness: 0.2,
         roughness: 0.6,
         toneMapped: true,
+        vertexColors: true,
       });
 
       const geometry = new THREE.TubeGeometry(
