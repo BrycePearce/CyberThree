@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import type { GridLine } from "~/types/gridTypes";
 
 interface Pulse {
-  lineIndex?: number;
+  id: string;
+  parentId?: string;
   position: THREE.Vector3;
   lineFraction: number;
   direction: THREE.Vector3;
@@ -24,45 +25,59 @@ interface Pulse {
   isChild: boolean;
 }
 
-interface PulseV extends Pulse {
-  id: string;
-  parentId?: string;
-}
-
 interface EnergyPulsesVProps {
   gridLines: GridLine[];
+  trigger: number;
   pulseSpeed?: number;
   pulseWidth?: number;
   pulseLength?: number;
   maxPulses?: number;
   emissiveIntensity?: number;
+  verticalPulses?: number;
 }
 
 export function EnergyPulsesV({
   gridLines,
+  trigger,
   pulseSpeed = 400,
   pulseWidth = 0.15,
   pulseLength = 6.0,
-  maxPulses = 75, // doing max pulses here makes cool different effects between TARGET_VERTICAL_PULSES 1 and 7
+  maxPulses = 75,
   emissiveIntensity = 5.0,
+  verticalPulses = 1,
 }: EnergyPulsesVProps) {
-  const [pulses, setPulses] = useState<PulseV[]>([]);
+  const [pulses, setPulses] = useState<Pulse[]>([]);
   const groupRef = useRef<THREE.Group>(null);
   const pulseIdCounter = useRef(0);
-  const activeVerticalPulses = useRef(0);
-  const TARGET_VERTICAL_PULSES = 3; // Constant number of vertical pulses to maintain
+  const lastTriggerRef = useRef(trigger);
 
-  const findIntersection = (pulse: PulseV): GridLine | null => {
+  const isWithinBounds = (position: THREE.Vector3, line: GridLine): boolean => {
+    const BOUNDARY_TOLERANCE = 0.1;
+    if (line.isVertical) {
+      return (
+        position.z >= Math.min(line.start, line.end) - BOUNDARY_TOLERANCE &&
+        position.z <= Math.max(line.start, line.end) + BOUNDARY_TOLERANCE
+      );
+    }
+    return (
+      position.x >= Math.min(line.start, line.end) - BOUNDARY_TOLERANCE &&
+      position.x <= Math.max(line.start, line.end) + BOUNDARY_TOLERANCE
+    );
+  };
+
+  const findIntersection = (pulse: Pulse): GridLine | null => {
     if (!pulse.isVertical) return null;
 
     const currentZ = pulse.position.z;
+    const INTERSECTION_TOLERANCE = 1;
 
     return (
       gridLines.find((line) => {
-        if (line.isVertical) return false;
-        if (pulse.processedZ.has(line.coordinate)) return false;
+        if (line.isVertical || pulse.processedZ.has(line.coordinate))
+          return false;
 
-        const isAtZ = Math.abs(currentZ - line.coordinate) < 1;
+        const isAtZ =
+          Math.abs(currentZ - line.coordinate) < INTERSECTION_TOLERANCE;
         if (!isAtZ) return false;
 
         return (
@@ -79,10 +94,8 @@ export function EnergyPulsesV({
     direction: THREE.Vector3,
     parentId?: string,
     isChild: boolean = false
-  ): PulseV | undefined => {
-    if (!isChild && activeVerticalPulses.current >= TARGET_VERTICAL_PULSES)
-      return;
-    if (isChild && pulses.length >= maxPulses) return;
+  ): Pulse | undefined => {
+    if (isChild && pulses.length >= maxPulses * 1.5) return;
 
     const startPosition = new THREE.Vector3();
     if (startLine.isVertical) {
@@ -94,6 +107,8 @@ export function EnergyPulsesV({
         startLine.start + startFraction * (startLine.end - startLine.start);
       startPosition.set(x, 0, startLine.coordinate);
     }
+
+    if (!isWithinBounds(startPosition, startLine)) return;
 
     const geometry = new THREE.CylinderGeometry(
       pulseWidth,
@@ -122,10 +137,6 @@ export function EnergyPulsesV({
     mesh.rotation.y = startLine.isVertical ? Math.PI / 2 : 0;
     groupRef.current?.add(mesh);
 
-    if (startLine.isVertical && !isChild) {
-      activeVerticalPulses.current++;
-    }
-
     return {
       id: `pulse-${pulseIdCounter.current++}`,
       parentId,
@@ -133,7 +144,7 @@ export function EnergyPulsesV({
       lineFraction: startFraction,
       direction,
       progress: 0,
-      speed: pulseSpeed,
+      speed: pulseSpeed * (isChild ? 1.2 : 1),
       line: startLine,
       mesh,
       color: pulseColor,
@@ -145,23 +156,23 @@ export function EnergyPulsesV({
     };
   };
 
-  const createInitialPulse = () => {
-    if (gridLines.length === 0) return;
-
+  const spawnInitialPulses = () => {
     const verticalLines = gridLines.filter((line) => line.isVertical);
     if (verticalLines.length === 0) return;
 
-    const startLine =
-      verticalLines[Math.floor(Math.random() * verticalLines.length)];
-    const direction = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i < verticalPulses; i++) {
+      const startLine =
+        verticalLines[Math.floor(Math.random() * verticalLines.length)];
+      const direction = new THREE.Vector3(0, 0, 1);
+      const newPulse = createPulse(startLine, 0, direction, undefined, false);
 
-    return createPulse(startLine, 0, direction, undefined, false);
+      if (newPulse) {
+        setPulses((current) => [...current, newPulse]);
+      }
+    }
   };
 
-  const spawnChildPulses = (
-    parentPulse: PulseV,
-    intersectingLine: GridLine
-  ) => {
+  const spawnChildPulses = (parentPulse: Pulse, intersectingLine: GridLine) => {
     parentPulse.processedZ.add(intersectingLine.coordinate);
 
     const spawnFraction =
@@ -183,15 +194,17 @@ export function EnergyPulsesV({
     });
   };
 
-  useFrame((state, delta) => {
-    // Maintain constant number of vertical pulses
-    if (activeVerticalPulses.current < TARGET_VERTICAL_PULSES) {
-      setPulses((current) => {
-        const newPulse = createInitialPulse();
-        return newPulse ? [...current, newPulse] : current;
-      });
+  // Handle trigger changes
+  useEffect(() => {
+    if (trigger !== lastTriggerRef.current) {
+      lastTriggerRef.current = trigger;
+      setPulses([]); // Clear existing pulses
+      spawnInitialPulses();
     }
+  }, [trigger, verticalPulses]);
 
+  // Animation loop
+  useFrame((state, delta) => {
     setPulses((current) => {
       return current.filter((pulse) => {
         const lineLength = Math.abs(pulse.line.end - pulse.line.start);
@@ -202,6 +215,24 @@ export function EnergyPulsesV({
             ? deltaFraction * pulse.direction.z
             : deltaFraction * pulse.direction.x);
 
+        const newPosition = pulse.position.clone();
+        if (pulse.line.isVertical) {
+          newPosition.z =
+            pulse.line.start +
+            newFraction * (pulse.line.end - pulse.line.start);
+        } else {
+          newPosition.x =
+            pulse.line.start +
+            newFraction * (pulse.line.end - pulse.line.start);
+        }
+
+        if (!isWithinBounds(newPosition, pulse.line)) {
+          groupRef.current?.remove(pulse.mesh);
+          pulse.mesh.geometry.dispose();
+          (pulse.mesh.material as THREE.Material).dispose();
+          return false;
+        }
+
         if (pulse.isVertical) {
           const intersectingLine = findIntersection(pulse);
           if (intersectingLine) {
@@ -209,29 +240,9 @@ export function EnergyPulsesV({
           }
         }
 
-        if (newFraction < -0.05 || newFraction > 1.05) {
-          groupRef.current?.remove(pulse.mesh);
-          pulse.mesh.geometry.dispose();
-          (pulse.mesh.material as THREE.Material).dispose();
-
-          if (pulse.isVertical && !pulse.isChild) {
-            activeVerticalPulses.current--;
-          }
-
-          return false;
-        }
-
-        if (pulse.line.isVertical) {
-          pulse.position.z =
-            pulse.line.start +
-            newFraction * (pulse.line.end - pulse.line.start);
-        } else {
-          pulse.position.x =
-            pulse.line.start +
-            newFraction * (pulse.line.end - pulse.line.start);
-        }
+        pulse.position.copy(newPosition);
         pulse.lineFraction = newFraction;
-        pulse.mesh.position.copy(pulse.position);
+        pulse.mesh.position.copy(newPosition);
 
         const pulseMaterial = pulse.mesh.material as THREE.MeshStandardMaterial;
         const colorPhase = (Math.sin(state.clock.elapsedTime * 10) + 1) / 2;
@@ -244,13 +255,13 @@ export function EnergyPulsesV({
     });
   });
 
+  // Cleanup
   useEffect(() => {
     return () => {
       pulses.forEach((pulse) => {
         pulse.mesh.geometry.dispose();
         (pulse.mesh.material as THREE.Material).dispose();
       });
-      activeVerticalPulses.current = 0;
     };
   }, []);
 
