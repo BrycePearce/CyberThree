@@ -24,16 +24,20 @@ export function GridPulse({
 
   // Store original materials
   useEffect(() => {
-    originalMaterials.current = gridLines.map((line) => ({
-      color: (line.mesh.material as THREE.MeshStandardMaterial).color.clone(),
-      emissive: (
-        line.mesh.material as THREE.MeshStandardMaterial
-      ).emissive.clone(),
-    }));
+    originalMaterials.current = gridLines
+      .filter((line) => line?.mesh?.material) // Add safety filter
+      .map((line) => ({
+        color: (line.mesh.material as THREE.MeshStandardMaterial).color.clone(),
+        emissive: (
+          line.mesh.material as THREE.MeshStandardMaterial
+        ).emissive.clone(),
+      }));
 
     return () => {
       // Restore original materials on cleanup
       gridLines.forEach((line, index) => {
+        if (!line?.mesh?.material) return;
+
         const original = originalMaterials.current[index];
         if (original) {
           (line.mesh.material as THREE.MeshStandardMaterial).color.copy(
@@ -63,10 +67,10 @@ export function GridPulse({
       const newBaseColor = baseColor.clone().multiplyScalar(brightnessFactor);
       const newEmissive = emissiveBase.clone().multiplyScalar(emissiveFactor);
 
-      (line.mesh.material as THREE.MeshStandardMaterial).color.copy(
+      (line.mesh.material as THREE.MeshStandardMaterial)?.color?.copy(
         newBaseColor
       );
-      (line.mesh.material as THREE.MeshStandardMaterial).emissive.copy(
+      (line.mesh.material as THREE.MeshStandardMaterial)?.emissive?.copy(
         newEmissive
       );
     });
