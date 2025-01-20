@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
+import { useFrame } from "@react-three/fiber";
 import { getCyberpunkColor } from "../../utils/colors";
 
 interface PerimeterFrameProps {
@@ -7,8 +8,22 @@ interface PerimeterFrameProps {
   gridDepth: number;
 }
 
+interface GlitchState {
+  frameIndex: number;
+  startTime: number;
+  duration: number;
+  originalMaterials: THREE.MeshStandardMaterial[];
+  meshes: THREE.Mesh[];
+  glitchLines: number;
+}
+
 export function PerimeterFrame({ gridWidth, gridDepth }: PerimeterFrameProps) {
-  const perimeterFrame = useMemo(() => {
+  const lastGlitchTime = useRef(Date.now());
+  const glitchStateRef = useRef<GlitchState | null>(null);
+  const groupRef = useRef<THREE.Group>(null);
+  const frameGroupRef = useRef<THREE.Group | null>(null);
+
+  const frameGroup = useMemo(() => {
     const perimeterGroup = new THREE.Group();
 
     function createSingleTubeEdge(
@@ -43,11 +58,17 @@ export function PerimeterFrame({ gridWidth, gridDepth }: PerimeterFrameProps) {
         toneMapped: true,
       });
 
-      return new THREE.Mesh(geometry, material);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.originalColor = finalColor.clone();
+      mesh.userData.originalEmissive = finalColor.clone();
+      mesh.userData.originalEmissiveIntensity = 4.0 - layerIndex * 0.5;
+
+      return mesh;
     }
 
     function createFrame(scale: number, yOffset: number, layerIndex: number) {
       const frameGroup = new THREE.Group();
+      frameGroup.userData.layerIndex = layerIndex;
 
       const width = gridWidth * scale;
       const depth = gridDepth * scale;
@@ -111,5 +132,143 @@ export function PerimeterFrame({ gridWidth, gridDepth }: PerimeterFrameProps) {
     return perimeterGroup;
   }, [gridWidth, gridDepth]);
 
-  return <primitive object={perimeterFrame} />;
+  // Store the frame group reference after creation
+  useEffect(() => {
+    frameGroupRef.current = frameGroup;
+  }, [frameGroup]);
+
+  const startGlitchEffect = () => {
+    if (!frameGroupRef.current) return;
+
+    // Pick a random frame
+    const frameIndex = Math.floor(
+      Math.random() * frameGroupRef.current.children.length
+    );
+    const frame = frameGroupRef.current.children[frameIndex];
+
+    const meshes: THREE.Mesh[] = [];
+    frame.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        meshes.push(child);
+      }
+    });
+
+    // Store original materials
+    const originalMaterials = meshes.map((mesh) =>
+      (mesh.material as THREE.MeshStandardMaterial).clone()
+    );
+
+    glitchStateRef.current = {
+      frameIndex,
+      startTime: Date.now(),
+      duration: 600 + Math.random() * 800, // 0.6-1.4 seconds
+      originalMaterials,
+      meshes,
+      glitchLines: 2 + Math.floor(Math.random() * 3), // 2-4 scan lines
+    };
+  };
+
+  useFrame(() => {
+    const currentTime = Date.now();
+
+    // Check to start new glitch
+    if (
+      !glitchStateRef.current &&
+      currentTime - lastGlitchTime.current > 8000
+    ) {
+      startGlitchEffect();
+      lastGlitchTime.current = currentTime;
+    }
+
+    // Update active glitch
+    if (glitchStateRef.current) {
+      const { startTime, duration, meshes, originalMaterials, glitchLines } =
+        glitchStateRef.current;
+      const elapsed = currentTime - startTime;
+      const progress = elapsed / duration;
+
+      if (progress >= 1) {
+        // Reset to original state
+        meshes.forEach((mesh, index) => {
+          const material = mesh.material as THREE.MeshStandardMaterial;
+          const originalMaterial = originalMaterials[index];
+
+          material.opacity = 1;
+          material.transparent = false;
+          material.emissiveIntensity = originalMaterial.emissiveIntensity;
+        });
+        glitchStateRef.current = null;
+      } else {
+        // Apply digital glitch effects
+        meshes.forEach((mesh) => {
+          const material = mesh.material as THREE.MeshStandardMaterial;
+          const originalIntensity =
+            mesh.userData.originalEmissiveIntensity || 4.0;
+
+          // Create scan line effect
+          const scanLineHeight = 0.2;
+          const totalScanHeight = glitchLines * scanLineHeight;
+          const scanSpeed = duration * 0.001;
+
+          // Calculate scan line positions
+          const scanY =
+            ((progress * scanSpeed) % (1 + totalScanHeight)) - totalScanHeight;
+
+          // Check if this mesh is in the scan line zone
+          const meshY = mesh.position.y;
+          const distanceToScanLine = Math.min(
+            ...Array.from({ length: glitchLines }, (_, i) =>
+              Math.abs(meshY - (scanY + i * scanLineHeight))
+            )
+          );
+
+          if (distanceToScanLine < scanLineHeight) {
+            // In scan line - apply effects
+            const scanIntensity = 1 - distanceToScanLine / scanLineHeight;
+
+            // Emission intensity pulse
+            const pulseFreq = currentTime * 0.01;
+            const pulseMagnitude = Math.sin(pulseFreq) * 0.3 + 0.7;
+            material.emissiveIntensity =
+              originalIntensity * (1 + scanIntensity * pulseMagnitude);
+
+            // Subtle transparency effect
+            material.transparent = true;
+            material.opacity = 0.85 + Math.sin(pulseFreq * 2) * 0.15;
+
+            // Very subtle chromatic aberration effect
+            const aberrationAmount = 0.05 * scanIntensity;
+            const originalColor = mesh.userData.originalEmissive;
+            if (originalColor) {
+              material.emissive.copy(originalColor);
+              material.emissive.r += aberrationAmount;
+              material.emissive.b -= aberrationAmount;
+            }
+          } else {
+            // Outside scan line - normal state
+            material.emissiveIntensity = originalIntensity;
+            material.opacity = 1;
+            material.transparent = false;
+            if (mesh.userData.originalEmissive) {
+              material.emissive.copy(mesh.userData.originalEmissive);
+            }
+          }
+        });
+      }
+    }
+  });
+
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      if (glitchStateRef.current) {
+        const { meshes, originalMaterials } = glitchStateRef.current;
+        meshes.forEach((mesh, index) => {
+          mesh.material = originalMaterials[index];
+        });
+      }
+    };
+  }, []);
+
+  return <primitive ref={groupRef} object={frameGroup} />;
 }
