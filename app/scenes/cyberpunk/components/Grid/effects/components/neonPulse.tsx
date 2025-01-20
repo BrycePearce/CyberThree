@@ -28,21 +28,46 @@ export function NeonPulse({
   const originalEmissiveColors = useRef<Color[]>([]);
   const noiseOffsets = useRef<number[]>([]);
 
-  // Safely get material from mesh
+  // Safely get material and its properties
   const getMaterial = (line: GridLine): THREE.MeshStandardMaterial | null => {
     if (!line?.mesh?.material) return null;
-    return line.mesh.material as THREE.MeshStandardMaterial;
+    const material = line.mesh.material as THREE.MeshStandardMaterial;
+    if (!material.emissive) {
+      material.emissive = new Color();
+    }
+    return material;
   };
 
-  // Safely clone color
-  const safeCloneColor = (color: THREE.Color | undefined): THREE.Color => {
-    if (!color) return new THREE.Color();
-    return color.clone();
+  // Safely clone color with fallback
+  const safeCloneColor = (
+    color: THREE.Color | undefined | null
+  ): THREE.Color => {
+    if (!color) return new Color();
+    try {
+      return color.clone();
+    } catch (error) {
+      console.warn("Error cloning color:", error);
+      return new Color();
+    }
+  };
+
+  // Safely update material color
+  const safeUpdateMaterial = (
+    material: THREE.MeshStandardMaterial | null,
+    newColor: THREE.Color,
+    newIntensity: number
+  ) => {
+    if (!material?.emissive) return;
+    try {
+      material.emissive.copy(newColor);
+      material.emissiveIntensity = newIntensity;
+    } catch (error) {
+      console.warn("Error updating material:", error);
+    }
   };
 
   // Store original material states and set up effect
   useMemo(() => {
-    // Store original states with safety checks
     originalEmissiveIntensities.current = gridLines.map((line) => {
       const material = getMaterial(line);
       return material?.emissiveIntensity ?? 0;
@@ -50,13 +75,11 @@ export function NeonPulse({
 
     originalEmissiveColors.current = gridLines.map((line) => {
       const material = getMaterial(line);
-      return material ? safeCloneColor(material.emissive) : new Color();
+      return safeCloneColor(material?.emissive);
     });
 
-    // Create random noise offsets for each line
     noiseOffsets.current = gridLines.map(() => Math.random() * Math.PI * 2);
 
-    // Set random pulse center within grid bounds
     const bounds = gridLines.reduce(
       (acc, line) => {
         if (line.isVertical) {
@@ -101,7 +124,6 @@ export function NeonPulse({
       const material = getMaterial(line);
       if (!material) return;
 
-      // Calculate center point of the line
       let centerX: number, centerZ: number;
       if (line.isVertical) {
         centerX = line.coordinate;
@@ -146,19 +168,16 @@ export function NeonPulse({
           0.5 +
         0.5;
 
-      try {
-        const finalColor = safeCloneColor(originalColor).lerp(
-          pulseColor,
-          finalIntensity * 0.6 * dataPattern
-        );
+      const finalColor = safeCloneColor(originalColor).lerp(
+        pulseColor,
+        finalIntensity * 0.6 * dataPattern
+      );
 
-        material.emissive.copy(finalColor);
-        material.emissiveIntensity =
-          originalIntensity +
-          finalIntensity * bloomStrength * (1 + dataPattern * 0.3);
-      } catch (error) {
-        console.warn("Error updating material:", error);
-      }
+      const newIntensity =
+        originalIntensity +
+        finalIntensity * bloomStrength * (1 + dataPattern * 0.3);
+
+      safeUpdateMaterial(material, finalColor, newIntensity);
     });
 
     // Restore original states when complete
@@ -168,14 +187,14 @@ export function NeonPulse({
         if (!material) return;
 
         const originalColor = originalEmissiveColors.current[index];
-        const originalIntensity = originalEmissiveIntensities.current[index];
+        const originalIntensity =
+          originalEmissiveIntensities.current[index] ?? 0;
 
-        if (originalColor) {
-          material.emissive.copy(originalColor);
-        }
-        if (typeof originalIntensity === "number") {
-          material.emissiveIntensity = originalIntensity;
-        }
+        safeUpdateMaterial(
+          material,
+          originalColor ?? new Color(),
+          originalIntensity
+        );
       });
     }
   });
@@ -188,14 +207,14 @@ export function NeonPulse({
         if (!material) return;
 
         const originalColor = originalEmissiveColors.current[index];
-        const originalIntensity = originalEmissiveIntensities.current[index];
+        const originalIntensity =
+          originalEmissiveIntensities.current[index] ?? 0;
 
-        if (originalColor) {
-          material.emissive.copy(originalColor);
-        }
-        if (typeof originalIntensity === "number") {
-          material.emissiveIntensity = originalIntensity;
-        }
+        safeUpdateMaterial(
+          material,
+          originalColor ?? new Color(),
+          originalIntensity
+        );
       });
     };
   }, [gridLines]);
