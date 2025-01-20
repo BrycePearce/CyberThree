@@ -4,6 +4,7 @@ import tailwindcss from "tailwindcss";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import glsl from 'vite-plugin-glsl';
+import netlifyPlugin from '@netlify/vite-plugin-react-router'
 
 export default defineConfig({
   css: {
@@ -11,5 +12,5 @@ export default defineConfig({
       plugins: [tailwindcss, autoprefixer],
     },
   },
-  plugins: [reactRouter(), tsconfigPaths(), glsl()],
+  plugins: [reactRouter(), tsconfigPaths(), glsl(), netlifyPlugin()],
 });
