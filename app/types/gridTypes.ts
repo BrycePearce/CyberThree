@@ -28,7 +28,7 @@ export interface GridEffectsManagerOptions {
     maxWaves?: number;
 }
 
-export type EffectType = 'lineWave' | 'energyPulse' | 'energyPulseV' | 'ripple';
+export type EffectType = 'lineWave' | 'neonPulse' | 'neonRipple';
 
 export interface GridEffectProps {
     gridLines: GridLine[];
