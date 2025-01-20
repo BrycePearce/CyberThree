@@ -1,16 +1,16 @@
 import * as THREE from "three";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { LineWaves } from "../effects/components/lineWaves";
 import { NeonPulse } from "../effects/components/neonPulse";
-import type { EffectType, GridLine } from "~/types/gridTypes";
 import { NeonRipple } from "../effects/components/neonRipple";
+import type { EffectType, GridLine } from "~/types/gridTypes";
+import { GridPulse } from "../effects/components/gridPulseEffect";
 
 const EFFECTS_CONFIG = {
-  lineWave: {
-    duration: 4000,
-    cooldown: 2000,
-    intensity: 2.5,
+  gridPulse: {
+    duration: 8000,
+    cooldown: 4000,
+    intensity: 1.5,
   },
   neonPulse: {
     duration: 3000,
@@ -105,7 +105,7 @@ export function GridEffects({
 
       // Available effects with weights
       const weightedEffects: [EffectType, number][] = [
-        ["lineWave", 1],
+        ["gridPulse", 1],
         ["neonPulse", 2],
         ["neonRipple", 2],
       ];
@@ -116,7 +116,7 @@ export function GridEffects({
       );
 
       let random = Math.random() * totalWeight;
-      let selectedEffect: EffectType = "lineWave";
+      let selectedEffect: EffectType = "gridPulse";
 
       for (const [effect, weight] of weightedEffects) {
         if (random <= weight) {
@@ -130,7 +130,7 @@ export function GridEffects({
       if (selectedEffect === lastEffectRef.current) {
         selectedEffect =
           weightedEffects.find(([effect]) => effect !== selectedEffect)?.[0] ||
-          "lineWave";
+          "gridPulse";
       }
 
       console.log("selectedEffect", selectedEffect);
@@ -147,11 +147,13 @@ export function GridEffects({
         const config = EFFECTS_CONFIG[effect.type];
 
         switch (effect.type) {
-          case "lineWave":
+          case "gridPulse":
             return (
-              <LineWaves
+              <GridPulse
                 key={`${effect.type}-${effect.startTime}`}
                 gridLines={gridLines}
+                intensity={effect.intensity * config.intensity}
+                bloomStrength={bloomIntensity}
               />
             );
           case "neonPulse":
