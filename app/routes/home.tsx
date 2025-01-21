@@ -3,8 +3,8 @@ import { CyberpunkScene } from "../scenes/cyberpunk/cyberpunkScene";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "New React Router App" },
-    { name: "description", content: "Welcome to React Router!" },
+    { title: "Cyberpunk Three" },
+    { name: "description", content: "A cypberunk ThreeJs demo" },
   ];
 }
 
