@@ -21,31 +21,29 @@ export function GridPulse({
       emissive: THREE.Color;
     }[]
   >([]);
-
-  // Store original materials
   useEffect(() => {
     originalMaterials.current = gridLines
-      .filter((line) => line?.mesh?.material) // Add safety filter
-      .map((line) => ({
-        color: (line.mesh.material as THREE.MeshStandardMaterial).color.clone(),
-        emissive: (
-          line.mesh.material as THREE.MeshStandardMaterial
-        ).emissive.clone(),
-      }));
+      .filter((line) => {
+        const material = line?.mesh?.material as THREE.MeshStandardMaterial;
+        return material?.color && material?.emissive;
+      })
+      .map((line) => {
+        const material = line.mesh.material as THREE.MeshStandardMaterial;
+        return {
+          color: material.color.clone(),
+          emissive: material.emissive.clone(),
+        };
+      });
 
     return () => {
-      // Restore original materials on cleanup
       gridLines.forEach((line, index) => {
-        if (!line?.mesh?.material) return;
+        const material = line?.mesh?.material as THREE.MeshStandardMaterial;
+        if (!material?.color || !material?.emissive) return;
 
         const original = originalMaterials.current[index];
         if (original) {
-          (line.mesh.material as THREE.MeshStandardMaterial).color.copy(
-            original.color
-          );
-          (line.mesh.material as THREE.MeshStandardMaterial).emissive.copy(
-            original.emissive
-          );
+          material.color.copy(original.color);
+          material.emissive.copy(original.emissive);
         }
       });
     };
@@ -54,24 +52,27 @@ export function GridPulse({
   useFrame((state) => {
     const time = state.clock.getElapsedTime();
 
-    gridLines.forEach((line, index) => {
-      if (!line?.mesh?.userData) return;
+    gridLines.forEach((line) => {
+      const material = line?.mesh?.material as THREE.MeshStandardMaterial;
+      const userData = line?.mesh?.userData;
 
-      const { baseColor, offset = 0, emissiveBase } = line.mesh.userData;
-      if (!baseColor || !emissiveBase) return;
+      if (
+        !material?.color ||
+        !material?.emissive ||
+        !userData?.baseColor ||
+        !userData?.emissiveBase
+      )
+        return;
+
+      const { baseColor, emissiveBase, offset = 0 } = userData;
 
       const pulse = (Math.sin((time + offset) * 1) + 1) * 0.5;
       const brightnessFactor = 0.3 + pulse * intensity;
       const emissiveFactor = 0.5 + pulse * 1.5 * intensity * bloomStrength;
 
-      const newBaseColor = baseColor.clone().multiplyScalar(brightnessFactor);
-      const newEmissive = emissiveBase.clone().multiplyScalar(emissiveFactor);
-
-      (line.mesh.material as THREE.MeshStandardMaterial)?.color?.copy(
-        newBaseColor
-      );
-      (line.mesh.material as THREE.MeshStandardMaterial)?.emissive?.copy(
-        newEmissive
+      material.color.copy(baseColor.clone().multiplyScalar(brightnessFactor));
+      material.emissive.copy(
+        emissiveBase.clone().multiplyScalar(emissiveFactor)
       );
     });
   });
