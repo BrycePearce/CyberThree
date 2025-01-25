@@ -8,6 +8,10 @@ import { IndependentGridEffects } from "./components/Grid/effects/independentGri
 import { PerimeterFrame } from "./components/Grid/components/perimeterFrame";
 import { useRef, useState } from "react";
 import type { GridLine } from "~/types/gridTypes";
+import { CyberpunkParticles } from "./components/particleEffects";
+import WaveSineGrid from "./components/WaveSineGrid";
+const gridWidth = 400;
+const gridDepth = 350;
 
 // todo combine this with grid.tsx
 function CyberpunkGrid() {
@@ -16,8 +20,6 @@ function CyberpunkGrid() {
 
   // Grid parameters
   const baseRadius = 0.06;
-  const gridWidth = 400;
-  const gridDepth = 350;
   const spacing = 2;
 
   return (
@@ -54,6 +56,8 @@ export function CyberpunkScene() {
       <hemisphereLight intensity={0.4} />
 
       <CyberpunkGrid />
+      <CyberpunkParticles count={2000} gridWidth={gridWidth} gridDepth={350} />
+      <WaveSineGrid />
       <FirstPersonControls />
 
       <EffectComposer>
