@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { useState, useEffect, useRef } from "react";
 import type { GridLine } from "~/types/gridTypes";
 
+// Pulse data structure
 interface Pulse {
   id: string;
   parentId?: string;
@@ -51,6 +52,7 @@ export function EnergyPulsesV({
   const pulseIdCounter = useRef(0);
   const lastTriggerRef = useRef(trigger);
 
+  // Check if pulse is within line boundaries
   const isWithinBounds = (position: THREE.Vector3, line: GridLine): boolean => {
     const BOUNDARY_TOLERANCE = 0.1;
     if (line.isVertical) {
@@ -65,6 +67,7 @@ export function EnergyPulsesV({
     );
   };
 
+  // Find potential line intersections
   const findIntersection = (pulse: Pulse): GridLine | null => {
     if (!pulse.isVertical) return null;
 
@@ -88,6 +91,7 @@ export function EnergyPulsesV({
     );
   };
 
+  // Create a new pulse
   const createPulse = (
     startLine: GridLine,
     startFraction: number,
@@ -156,6 +160,7 @@ export function EnergyPulsesV({
     };
   };
 
+  // Spawn initial vertical pulses
   const spawnInitialPulses = () => {
     const verticalLines = gridLines.filter((line) => line.isVertical);
     if (verticalLines.length === 0) return;
@@ -172,6 +177,7 @@ export function EnergyPulsesV({
     }
   };
 
+  // Spawn child pulses at line intersections
   const spawnChildPulses = (parentPulse: Pulse, intersectingLine: GridLine) => {
     parentPulse.processedZ.add(intersectingLine.coordinate);
 
@@ -255,7 +261,7 @@ export function EnergyPulsesV({
     });
   });
 
-  // Cleanup
+  // Cleanup resources
   useEffect(() => {
     return () => {
       pulses.forEach((pulse) => {

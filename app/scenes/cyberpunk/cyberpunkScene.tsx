@@ -10,15 +10,16 @@ import { useRef, useState } from "react";
 import type { GridLine } from "~/types/gridTypes";
 import { CyberpunkParticles } from "./components/particleEffects";
 import WaveSineGrid from "./components/WaveSineGrid";
+
+// Scene dimensions
 const gridWidth = 400;
 const gridDepth = 350;
 
-// todo combine this with grid.tsx
 function CyberpunkGrid() {
   const groupRef = useRef<THREE.Group>(null);
   const [gridLines, setGridLines] = useState<GridLine[]>([]);
 
-  // Grid parameters
+  // Grid visual parameters
   const baseRadius = 0.06;
   const spacing = 2;
 

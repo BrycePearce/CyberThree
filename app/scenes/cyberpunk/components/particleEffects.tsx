@@ -2,6 +2,7 @@ import { useRef, useMemo } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
+// Vertex shader for dynamic particle sizing and positioning
 const vertexShader = `
   uniform float time;
   attribute float size;
@@ -15,6 +16,7 @@ const vertexShader = `
   }
 `;
 
+// Fragment shader for circular, noise-enhanced particles
 const fragmentShader = `
   varying vec3 vColor;
 
@@ -44,13 +46,13 @@ export const CyberpunkParticles = ({
 }: CyberpunkParticlesProps) => {
   const points = useRef<THREE.Points>(null);
 
-  // Define the exclusion zone dimensions outside of useMemo
+  // Define volume and exclusion parameters
   const exclusionWidth = gridWidth * 1.2;
   const exclusionDepth = gridDepth * 1.2;
   const exclusionBottom = 0;
   const exclusionTop = 200;
 
-  // Define the check function at component scope
+  // Check if particle is in restricted volume
   const isInExclusionZone = (x: number, y: number, z: number) => {
     return (
       Math.abs(x) < exclusionWidth / 2 &&
@@ -60,6 +62,7 @@ export const CyberpunkParticles = ({
     );
   };
 
+  // Generate initial particle data
   const particleData = useMemo(() => {
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
@@ -70,11 +73,11 @@ export const CyberpunkParticles = ({
     const speeds = new Float32Array(count);
 
     const palette = [
-      new THREE.Color("#ff00ff"), // Magenta
-      new THREE.Color("#00ffff"), // Cyan
-      new THREE.Color("#ff3366"), // Neon pink
-      new THREE.Color("#4deeea"), // Electric blue
-      new THREE.Color("#74ee15"), // Neon green
+      new THREE.Color("#ff00ff"),
+      new THREE.Color("#00ffff"),
+      new THREE.Color("#ff3366"),
+      new THREE.Color("#4deeea"),
+      new THREE.Color("#74ee15"),
     ];
 
     const volumeWidth = gridWidth * 3;
@@ -83,13 +86,10 @@ export const CyberpunkParticles = ({
 
     let particleIndex = 0;
     while (particleIndex < count) {
-      // Generate random position in the volume
       const radius = Math.sqrt(Math.random()) * (volumeWidth / 1.5);
       const angle = Math.random() * Math.PI * 2;
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-
-      // Random height across entire volume
       const y = (Math.random() - 0.5) * volumeHeight;
 
       // Skip if in exclusion zone
@@ -110,11 +110,8 @@ export const CyberpunkParticles = ({
       colors[i * 3 + 1] = color.g;
       colors[i * 3 + 2] = color.b;
 
-      // Varied sizes with some larger particles
       sizes[i] =
         Math.random() < 0.1 ? Math.random() * 4 + 3 : Math.random() * 2 + 1;
-
-      // Slower rotation speed, varying with distance
       speeds[i] = (Math.random() * 0.01 + 0.015) * (1 - radius / volumeWidth);
       heightOffsets[i] = Math.random() * Math.PI * 2;
 
@@ -135,6 +132,7 @@ export const CyberpunkParticles = ({
     };
   }, [count, gridWidth, gridDepth]);
 
+  // Animate particles each frame
   useFrame((state, delta) => {
     if (!points.current) return;
 
@@ -145,33 +143,30 @@ export const CyberpunkParticles = ({
     for (let i = 0; i < count; i++) {
       const idx = i * 3;
 
-      // Update angle for consistent circular motion
+      // Update circular motion
       particleData.angles[i] += particleData.speeds[i] * delta;
       const angle = particleData.angles[i];
       const radius = particleData.rotationRadii[i];
 
-      // Calculate new position
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
 
-      // Only update x and z if new position wouldn't put particle in exclusion zone
       const currentY = positions[idx + 1];
       if (!isInExclusionZone(x, currentY, z)) {
         positions[idx] = x;
         positions[idx + 2] = z;
       }
 
-      // Add very subtle vertical wave motion
+      // Add subtle vertical wave motion
       const heightOffset =
         Math.sin(time * 0.2 + particleData.heightOffsets[i]) * 2;
       const newY = positions[idx + 1] + heightOffset * delta;
 
-      // Only update y if it wouldn't put particle in exclusion zone
       if (!isInExclusionZone(positions[idx], newY, positions[idx + 2])) {
         positions[idx + 1] = newY;
       }
 
-      // Wrap particles if they go too far up or down
+      // Wrap particles vertically
       if (positions[idx + 1] > particleData.volumeHeight / 2) {
         positions[idx + 1] = -particleData.volumeHeight / 2;
       }

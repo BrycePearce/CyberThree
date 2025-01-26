@@ -81,6 +81,7 @@ export const RippleEffect = forwardRef<RippleEffectRef, RippleEffectProps>(
           maxRadius: { value: maxRadius },
           intensity: { value: intensity },
         },
+        // todo move these shaders
         vertexShader: `
         varying vec3 vPosition;
         

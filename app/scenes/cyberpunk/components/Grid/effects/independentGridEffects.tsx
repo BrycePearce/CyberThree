@@ -11,21 +11,17 @@ interface IndependentGridEffectsProps {
 export function IndependentGridEffects({
   gridLines,
 }: IndependentGridEffectsProps) {
-  // Triggers for each effect
   const [regularPulseTrigger, setRegularPulseTrigger] = useState(0);
   const [verticalPulseTrigger, setVerticalPulseTrigger] = useState(0);
   const [verticalPulses, setVerticalPulses] = useState(1);
 
-  // Active state tracking
   const isRegularActiveRef = useRef(false);
   const isVerticalActiveRef = useRef(false);
 
-  // Function to get random delay within range
   const getRandomDelay = (min: number, max: number) => {
     return Math.floor(Math.random() * (max - min + 1) + min) * 1000;
   };
 
-  // Function to get random number of vertical pulses
   const getRandomVerticalPulses = () => {
     return Math.floor(Math.random() * 8) + 1;
   };
@@ -41,7 +37,7 @@ export function IndependentGridEffects({
         setTimeout(() => {
           isRegularActiveRef.current = false;
           scheduleNext();
-        }, 2000); // Duration of effect
+        }, 2000);
       }
     };
 
@@ -67,7 +63,7 @@ export function IndependentGridEffects({
         setTimeout(() => {
           isVerticalActiveRef.current = false;
           scheduleNext();
-        }, 3000); // Duration of effect
+        }, 3000);
       }
     };
 

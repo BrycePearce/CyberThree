@@ -15,6 +15,7 @@ type NeonRippleProps = {
 };
 
 // Shader that creates a circular ripple effect
+// todo: use color util function for these
 const rippleShader = {
   uniforms: {
     time: { value: 0 },
@@ -28,6 +29,7 @@ const rippleShader = {
     emissiveBase: { value: new Color() },
     emissiveIntensity: { value: 1.0 },
   },
+  // todo move shaders to their own directory
   vertexShader: `
     varying vec3 vPosition;
     varying vec2 vUv;

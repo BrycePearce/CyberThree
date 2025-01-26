@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { useState, useEffect, useRef } from "react";
 import type { GridLine } from "~/types/gridTypes";
 
+// Defines the structure of an individual energy pulse
 interface Pulse {
   baseEmissive: THREE.Color;
   color: THREE.Color;
@@ -42,6 +43,7 @@ export function EnergyPulses({
   const groupRef = useRef<THREE.Group>(null);
   const lastTriggerRef = useRef(trigger);
 
+  // Find lines that intersect with current pulse path
   const findIntersectingLines = (
     position: THREE.Vector3,
     currentLine: GridLine
@@ -67,6 +69,7 @@ export function EnergyPulses({
     });
   };
 
+  // Generate a new pulse
   const createPulse = () => {
     if (gridLines.length === 0) return;
 
@@ -128,6 +131,7 @@ export function EnergyPulses({
     };
   };
 
+  // Trigger pulse creation on trigger change
   useEffect(() => {
     if (trigger !== lastTriggerRef.current) {
       lastTriggerRef.current = trigger;
@@ -141,6 +145,7 @@ export function EnergyPulses({
     }
   }, [trigger, maxPulses]);
 
+  // Animate pulses each frame
   useFrame((state, delta) => {
     setPulses((current) => {
       return current.filter((pulse) => {
@@ -203,6 +208,7 @@ export function EnergyPulses({
     });
   });
 
+  // Clean up resources
   useEffect(() => {
     return () => {
       pulses.forEach((pulse) => {

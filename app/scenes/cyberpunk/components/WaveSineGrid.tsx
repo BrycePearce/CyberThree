@@ -6,50 +6,46 @@ import type { Mesh } from "three";
 const WaveSineGrid = () => {
   const meshRef = useRef<Mesh>(null);
 
+  // Generate dynamic geometry with color gradient
   const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(200, 100, 60, 30); // Adjusted for clearer grid lines
+    const geo = new THREE.PlaneGeometry(200, 100, 60, 30);
     const colors = new Float32Array(geo.attributes.position.count * 3);
     const color = new THREE.Color();
 
-    // Define grittier gradient pairs
+    // Cyberpunk color gradients
+    // todo: use Cyberpunk method colors
     const gradients = [
       {
-        start: new THREE.Color("#00726d").multiplyScalar(1.2), // Darker cyan
-        end: new THREE.Color("#8b0080").multiplyScalar(1.2), // Deep magenta
+        start: new THREE.Color("#00726d").multiplyScalar(1.2),
+        end: new THREE.Color("#8b0080").multiplyScalar(1.2),
       },
       {
-        start: new THREE.Color("#004455").multiplyScalar(1.2), // Dark teal
-        end: new THREE.Color("#660066").multiplyScalar(1.2), // Deep purple
+        start: new THREE.Color("#004455").multiplyScalar(1.2),
+        end: new THREE.Color("#660066").multiplyScalar(1.2),
       },
       {
-        start: new THREE.Color("#2b0d30").multiplyScalar(1.2), // Dark purple
-        end: new THREE.Color("#600030").multiplyScalar(1.2), // Dark red
+        start: new THREE.Color("#2b0d30").multiplyScalar(1.2),
+        end: new THREE.Color("#600030").multiplyScalar(1.2),
       },
     ];
 
-    // Select one gradient pair (can be changed for different looks)
     const selectedGradient = gradients[0];
 
     for (let i = 0; i < geo.attributes.position.count; i++) {
       const x = geo.attributes.position.getX(i);
       const y = geo.attributes.position.getY(i);
 
-      // Create diagonal gradient effect
       const nx = (x + 150) / 300;
       const ny = (y + 150) / 300;
 
-      // Diagonal gradient factor
       const gradientFactor = (nx + ny) / 2;
 
-      // Smooth interpolation between colors
       color
         .copy(selectedGradient.start)
         .lerp(selectedGradient.end, gradientFactor);
 
-      // Add subtle variation for more visual interest
-      // Add more dramatic variation for grittier look
       const variation = 0.15 * Math.sin(nx * 12) * Math.sin(ny * 12);
-      const grit = 0.8 + Math.random() * 0.4; // Random darkness variation
+      const grit = 0.8 + Math.random() * 0.4;
       color.multiplyScalar((1 + variation) * grit);
 
       colors[i * 3] = color.r;
@@ -61,6 +57,7 @@ const WaveSineGrid = () => {
     return geo;
   }, []);
 
+  // Create wireframe material with transparency
   const material = useMemo(() => {
     return new THREE.MeshBasicMaterial({
       vertexColors: true,
@@ -71,13 +68,13 @@ const WaveSineGrid = () => {
     });
   }, []);
 
+  // Animate grid with wave and opacity effects
   useFrame((state) => {
     if (!meshRef.current) return;
 
     const positions = meshRef.current.geometry.attributes.position;
     const time = state.clock.getElapsedTime();
 
-    // Smoother wave animation
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i);
       const y = positions.getY(i);
@@ -91,10 +88,8 @@ const WaveSineGrid = () => {
     }
     positions.needsUpdate = true;
 
-    // Subtle movement
     meshRef.current.rotation.z = Math.sin(time * 0.2) * 0.05;
 
-    // Gentle opacity pulse
     if (meshRef.current.material instanceof THREE.MeshBasicMaterial) {
       const pulse = 0.8 + Math.sin(time * 1.5) * 0.1;
       meshRef.current.material.opacity = pulse;
